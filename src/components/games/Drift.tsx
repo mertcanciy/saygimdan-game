@@ -51,7 +51,10 @@ const _smokeParts = Array.from({ length: SMOKE_N }, () => ({
   life: 0,
 }));
 const _smokeObj = new THREE.Object3D();
-const _smokeCol = new THREE.Color();
+const _smokeAlpha = new THREE.InstancedBufferAttribute(
+  new Float32Array(SMOKE_N),
+  1
+);
 
 function TireSmoke({
   emitRef,
@@ -59,10 +62,46 @@ function TireSmoke({
   emitRef: React.MutableRefObject<THREE.Vector3[]>;
 }) {
   const tex = useMemo(() => makeSmokeTexture(), []);
+  const geo = useMemo(() => {
+    const g = new THREE.PlaneGeometry(1, 1);
+    g.setAttribute("aAlpha", _smokeAlpha);
+    return g;
+  }, []);
+  const mat = useMemo(() => {
+    const m = new THREE.MeshBasicMaterial({
+      map: tex,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.NormalBlending,
+      color: new THREE.Color(0.82, 0.84, 0.9),
+    });
+    // real per-instance alpha so puffs stay light grey and never turn black
+    m.onBeforeCompile = (sh) => {
+      sh.vertexShader = sh.vertexShader
+        .replace(
+          "#include <common>",
+          "#include <common>\nattribute float aAlpha; varying float vSmokeAlpha;"
+        )
+        .replace(
+          "#include <begin_vertex>",
+          "#include <begin_vertex>\nvSmokeAlpha = aAlpha;"
+        );
+      sh.fragmentShader = sh.fragmentShader
+        .replace(
+          "#include <common>",
+          "#include <common>\nvarying float vSmokeAlpha;"
+        )
+        .replace(
+          "vec4 diffuseColor = vec4( diffuse, opacity );",
+          "vec4 diffuseColor = vec4( diffuse, opacity * vSmokeAlpha );"
+        );
+    };
+    m.customProgramCacheKey = () => "tire-smoke-alpha";
+    return m;
+  }, [tex]);
   const mesh = useRef<THREE.InstancedMesh>(null);
   const parts = _smokeParts;
   const obj = _smokeObj;
-  const col = _smokeCol;
   const cursor = useRef(0);
   const emitAcc = useRef(0);
 
@@ -84,6 +123,7 @@ function TireSmoke({
     }
     if (emitAcc.current > 0.1) emitAcc.current = 0;
 
+    const alphaArr = _smokeAlpha.array as Float32Array;
     for (let i = 0; i < SMOKE_N; i++) {
       const part = parts[i];
       if (part.life <= 0) {
@@ -91,6 +131,7 @@ function TireSmoke({
         obj.scale.setScalar(0.001);
         obj.updateMatrix();
         im.setMatrixAt(i, obj.matrix);
+        alphaArr[i] = 0;
         continue;
       }
       part.life -= dt;
@@ -98,27 +139,22 @@ function TireSmoke({
       const t = 1 - part.life / 1.2;
       obj.position.copy(part.pos);
       obj.quaternion.copy(camera.quaternion);
-      obj.scale.setScalar(0.8 + t * 2.6);
+      obj.scale.setScalar(0.7 + t * 1.8); // max ~2.5 m
       obj.updateMatrix();
       im.setMatrixAt(i, obj.matrix);
-      // additive: fade to black = invisible
-      col.setScalar(0.35 * (1 - t));
-      im.setColorAt(i, col);
+      alphaArr[i] = 0.5 * (1 - t);
     }
     im.instanceMatrix.needsUpdate = true;
-    if (im.instanceColor) im.instanceColor.needsUpdate = true;
+    _smokeAlpha.needsUpdate = true;
   });
 
   return (
-    <instancedMesh ref={mesh} args={[undefined, undefined, SMOKE_N]} frustumCulled={false}>
-      <planeGeometry args={[1, 1]} />
-      <meshBasicMaterial
-        map={tex}
-        transparent
-        blending={THREE.AdditiveBlending}
-        depthWrite={false}
-      />
-    </instancedMesh>
+    <instancedMesh
+      ref={mesh}
+      args={[geo, mat, SMOKE_N]}
+      frustumCulled={false}
+      renderOrder={5}
+    />
   );
 }
 
@@ -175,7 +211,7 @@ function SkidMarks({ emitRef }: { emitRef: React.MutableRefObject<THREE.Vector3[
         // quad: prev-left, cur-left, cur-right... use width dir
         _tmp.copy(cur).sub(prev);
         if (_tmp.lengthSq() < 0.0004) continue;
-        _right.set(-_tmp.z, 0, _tmp.x).normalize().multiplyScalar(0.16);
+        _right.set(-_tmp.z, 0, _tmp.x).normalize().multiplyScalar(0.22);
         const y = 0.02;
         a[o] = prev.x - _right.x; a[o + 1] = y; a[o + 2] = prev.z - _right.z;
         a[o + 3] = cur.x - _right.x; a[o + 4] = y; a[o + 5] = cur.z - _right.z;
@@ -193,11 +229,13 @@ function SkidMarks({ emitRef }: { emitRef: React.MutableRefObject<THREE.Vector3[
   return (
     <mesh geometry={geo} frustumCulled={false}>
       <meshBasicMaterial
-        color="#05050a"
+        color="#000000"
         transparent
-        opacity={0.75}
+        opacity={0.85}
         polygonOffset
         polygonOffsetFactor={-2}
+        polygonOffsetUnits={-4}
+        depthWrite={false}
       />
     </mesh>
   );
