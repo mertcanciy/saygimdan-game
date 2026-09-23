@@ -1,18 +1,232 @@
 @import "tailwindcss";
 
+/* Paper, ink and one highlighter. */
 :root {
-  --background: #05060f;
-  --foreground: #ededf2;
+  --paper: #ffffff;
+  --ink: #0a0a0a;
+  --muted-ink: #6e6e6e;
+  --line: #e6e6e4;
+  --soft: #f4f4f2;
+  --yellow: #ffd400;
+  --nav-h: 72px;
+
+  /* shadcn-compatible aliases used by the small ui/ primitives */
+  --background: var(--paper);
+  --foreground: var(--ink);
+  --muted: var(--soft);
+  --muted-foreground: var(--muted-ink);
+  --border: var(--line);
+  --input: var(--line);
+  --ring: var(--ink);
+  --primary: var(--ink);
+  --primary-foreground: var(--paper);
+  --secondary: var(--soft);
+  --secondary-foreground: var(--ink);
+  --accent: var(--yellow);
+  --accent-foreground: var(--ink);
+  --destructive: #d92d20;
+  --card: var(--paper);
+  --card-foreground: var(--ink);
+  --popover: var(--paper);
+  --popover-foreground: var(--ink);
+  --radius: 0.75rem;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-paper: var(--paper);
+  --color-ink: var(--ink);
+  --color-line: var(--line);
+  --color-soft: var(--soft);
+  --color-muted-ink: var(--muted-ink);
+  --color-yellow: var(--yellow);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --font-sans: var(--font-grotesk), "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-mono: var(--font-jb-mono), ui-monospace, monospace;
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
+@layer base {
+  * {
+    border-color: var(--line);
+  }
+  html {
+    color-scheme: light;
+    scroll-behavior: smooth;
+  }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection {
+    background: var(--yellow);
+    color: var(--ink);
+  }
+  :focus-visible {
+    outline: 2px solid var(--ink);
+    outline-offset: 3px;
+  }
+}
+
+/* ---------- display type ---------- */
+.display {
+  font-weight: 800;
+  letter-spacing: -0.055em;
+  line-height: 0.92;
+}
+.display-2 {
+  font-weight: 700;
+  letter-spacing: -0.045em;
+  line-height: 0.98;
+}
+
+/* the highlighter: a yellow block that draws in from the left once */
+.mark {
+  position: relative;
+  display: inline-block;
+  padding: 0 0.08em;
+  isolation: isolate;
+}
+.mark::before {
+  content: "";
+  position: absolute;
+  inset: 0.06em -0.02em -0.04em;
+  background: var(--yellow);
+  z-index: -1;
+  transform-origin: left center;
+  animation: mark-draw 0.7s cubic-bezier(0.7, 0, 0.2, 1) 0.55s both;
+}
+@keyframes mark-draw {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+/* hero lines rise from behind a mask */
+.rise {
+  display: block;
+  overflow: hidden;
+  padding-bottom: 0.08em;
+}
+.rise > span {
+  display: inline-block;
+  animation: rise 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.rise:nth-child(2) > span { animation-delay: 0.1s; }
+@keyframes rise {
+  from { transform: translateY(105%); }
+  to { transform: translateY(0); }
+}
+
+/* ---------- pill buttons (black pill with a yellow disc) ---------- */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  height: 56px;
+  padding: 0 6px 0 26px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--paper);
+  font-weight: 600;
+  font-size: 17px;
+  letter-spacing: -0.01em;
+  border: 1px solid var(--ink);
+  transition: background-color 0.2s ease;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.pill .disc {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  background: var(--yellow);
+  color: var(--ink);
+  transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.pill:hover .disc { transform: translateX(3px) rotate(-45deg); }
+.pill:disabled { opacity: 0.55; cursor: default; }
+.pill-sm { height: 46px; padding-left: 20px; font-size: 15px; gap: 10px; }
+.pill-sm .disc { width: 34px; height: 34px; }
+
+.ghost {
+  display: inline-flex;
+  align-items: center;
+  height: 56px;
+  padding: 0 28px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--ink);
+  font-weight: 500;
+  font-size: 17px;
+  background: var(--paper);
+  transition: border-color 0.2s ease;
+}
+.ghost:hover { border-color: var(--ink); }
+
+/* keycaps */
+.key {
+  display: inline-grid;
+  place-items: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 7px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  background: var(--paper);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--ink);
+}
+
+/* equalizer bars in the song dock */
+@keyframes eq {
+  from { transform: scaleY(0.25); }
+  to { transform: scaleY(1); }
+}
+
+/* HUD pop */
+@keyframes pop-in {
+  0% { transform: scale(0.8) translateY(6px); opacity: 0; }
+  45% { transform: scale(1.06) translateY(0); opacity: 1; }
+  100% { transform: scale(1) translateY(0); opacity: 1; }
+}
+.animate-pop { animation: pop-in 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.2) both; }
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-up { animation: fade-up 0.45s ease-out both; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.001ms !important;
+  }
+  html { scroll-behavior: auto; }
 }

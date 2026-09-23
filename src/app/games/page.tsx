@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { useHydrated, useUserStore } from "@/lib/store";
+import { useRouter } from "next/navigation";
 import { GAMES } from "@/lib/games";
-import GameCover from "@/components/GameCover";
+import { useHydrated, useUserStore } from "@/lib/store";
+import { Keys, SiteNav } from "@/components/site/Chrome";
+import GameShot from "@/components/site/GameShot";
 
 export default function GamesPage() {
   const router = useRouter();
@@ -13,59 +14,72 @@ export default function GamesPage() {
   const hydrated = useHydrated();
 
   useEffect(() => {
-    if (hydrated && !user) router.replace("/");
+    if (hydrated && !user) router.replace("/#giris");
   }, [hydrated, user, router]);
 
-  if (!hydrated || !user) {
-    return <main className="min-h-dvh bg-[#05060f]" />;
-  }
+  if (!hydrated || !user) return <main className="min-h-dvh" />;
 
   return (
-    <main className="min-h-dvh bg-[#05060f] text-white relative">
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(88,28,135,0.25),transparent_60%)] pointer-events-none" />
-      <header className="relative z-10 flex items-center justify-between px-6 py-5 max-w-5xl mx-auto">
-        <h1 className="text-xl font-bold">
-          Hoş geldin,{" "}
-          <span className="bg-gradient-to-r from-fuchsia-400 to-sky-400 bg-clip-text text-transparent">
-            {user.name}
-          </span>
-        </h1>
+    <>
+      <SiteNav>
+        <span className="hidden text-ink sm:inline">{user.name}</span>
         <button
+          type="button"
           onClick={() => {
             clearUser();
             router.push("/");
           }}
-          className="text-sm text-white/60 hover:text-white border border-white/15 rounded-lg px-4 py-2 hover:border-white/40 transition cursor-pointer"
+          className="hover:text-ink"
         >
-          Çıkış
+          Çıkış yap
         </button>
-      </header>
+      </SiteNav>
 
-      <section className="relative z-10 max-w-5xl mx-auto px-6 pb-16 grid grid-cols-1 md:grid-cols-2 gap-6">
-        {GAMES.map((game) => (
-          <Link
-            key={game.slug}
-            href={`/play/${game.slug}`}
-            className="group rounded-2xl overflow-hidden border border-white/10 bg-white/[0.03] backdrop-blur transition duration-300 hover:scale-[1.02]"
-            style={{ ["--accent" as string]: game.accent }}
-            onMouseEnter={(e) =>
-              (e.currentTarget.style.boxShadow = `0 0 40px ${game.accent}55`)
-            }
-            onMouseLeave={(e) => (e.currentTarget.style.boxShadow = "none")}
-          >
-            <GameCover slug={game.slug} />
-            <div className="p-5">
-              <h2 className="text-2xl font-bold" style={{ color: game.accent }}>
-                {game.title}
-              </h2>
-              <p className="text-sm text-white/70 mt-1">{game.subtitle}</p>
-              <p className="text-xs text-white/40 mt-3 leading-relaxed">
-                {game.description}
-              </p>
-            </div>
-          </Link>
-        ))}
-      </section>
-    </main>
+      <main className="mx-auto max-w-[1280px] px-5 pb-40 pt-16 sm:px-10 sm:pt-24">
+        <h1 className="display-2 max-w-[16ch] text-[clamp(2.6rem,5.6vw,5rem)]">
+          Merhaba {user.name}. Nereden başlıyoruz?
+        </h1>
+        <p className="mt-5 max-w-[32rem] text-[17px] leading-[1.55] text-muted-ink">
+          Bir oyun seç. Şarkı sağ altta; oyun değiştirsen de kaldığı yerden devam eder.
+        </p>
+
+        <ul className="mt-16 border-t border-line">
+          {GAMES.map((g, i) => (
+            <li key={g.slug} className="border-b border-line">
+              <Link
+                href={`/play/${g.slug}`}
+                className="group grid items-center gap-6 py-8 md:grid-cols-[1fr_minmax(0,1.05fr)] md:gap-12 md:py-10"
+              >
+                <div className="md:order-none">
+                  <h2 className="text-[clamp(2.4rem,5vw,4.4rem)] font-extrabold leading-[0.95] tracking-[-0.055em]">
+                    <span className="bg-[linear-gradient(var(--yellow),var(--yellow))] bg-[length:0%_100%] bg-no-repeat px-1 -mx-1 transition-[background-size] duration-300 ease-out group-hover:bg-[length:100%_100%] group-focus-visible:bg-[length:100%_100%]">
+                      {g.title}
+                    </span>
+                  </h2>
+                  <p className="mt-3 text-[18px] font-medium tracking-[-0.01em]">{g.subtitle}</p>
+                  <p className="mt-2 max-w-[30rem] text-[15.5px] leading-[1.55] text-muted-ink">{g.description}</p>
+                  <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-[13px] text-muted-ink">
+                    {g.controls.slice(0, 3).map((c) => (
+                      <span key={c.label} className="inline-flex items-center gap-1.5">
+                        <Keys keys={c.keys} />
+                        {c.label}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <div className="aspect-[16/9] overflow-hidden rounded-[20px] bg-soft">
+                  <GameShot
+                    slug={g.slug}
+                    alt={`${g.title} oyunundan bir kare`}
+                    priority={i < 2}
+                    className="transition-transform duration-500 ease-out group-hover:scale-[1.03]"
+                  />
+                </div>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </main>
+    </>
   );
 }

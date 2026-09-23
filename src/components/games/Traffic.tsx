@@ -1,271 +1,178 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import * as THREE from "three";
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Stars } from "@react-three/drei";
-import { EffectComposer, Bloom } from "@react-three/postprocessing";
-import Car from "./shared/Car";
-import { makeFacadeTexture } from "./shared/City";
-import { mulberry32 } from "./shared/city";
+import { Canvas, useFrame } from "@react-three/fiber";
+import { mulberry32 } from "./shared/cityGen";
 import { useKeys } from "./shared/useKeys";
-import { HudStat } from "./shared/GameHud";
+import Particles, { type ParticleHandle } from "./shared/Particles";
+import { WorldAtmosphere, WorldEffects, CANVAS_GL } from "./shared/World";
+import { HudStat, HudBanner, HudModal, HudBar, HudCenter } from "./shared/GameHud";
+import Highway, { LANE_W, LANES, ONCOMING_X, REBASE } from "./cars/Highway";
+import Cockpit from "./cars/Cockpit";
+import Car, { type CarHandle } from "./shared/Car";
+import TrafficFleet, { type FleetCar } from "./cars/TrafficFleet";
+import { buildCar, type CarType } from "./cars/carGeometry";
+import { beamTexture, TRAFFIC_PAINTS } from "./cars/carMaterials";
 import { getGame } from "@/lib/games";
 
 const ACCENT = getGame("traffic")!.accent;
 const SUB = 1 / 120;
-const LANE_W = 3.6;
-const SEG_LEN = 60;
-const SEG_COUNT = 14;
-const _obj = new THREE.Object3D();
-const _col = new THREE.Color();
-const _headTarget = new THREE.Object3D();
-
-const PALETTE = ["#1b2138", "#232946", "#2a2038", "#1a2530", "#241d33"];
-const CAR_COLORS = ["#3b82f6", "#22c55e", "#eab308", "#e5e7eb", "#f97316", "#94a3b8", "#14b8a6", "#f43f5e"];
+const MAX_SPEED = 62; // m/s ≈ 223 km/h
+const EYE_Y = 1.09;
+const PLAYER_HALF_W = 0.95;
+const PLAYER_HALF_L = 2.25;
+const _tmp = new THREE.Vector3();
+const _tmp2 = new THREE.Vector3();
 
 interface Hud {
   speed: number;
   score: number;
   combo: number;
-  makas: number; // popup counter/timestamp
-  crashed: number;
+  crashed: boolean;
+  nitro: number;
+  distance: number;
+  bannerId: number;
+  bannerText: string;
+  best: number;
 }
 
-/* ---------- endless roadside scenery ---------- */
-const B_PER_SIDE = 26; // buildings per side per cycle
-const LAMPS = 20;
+/* ---------- traffic model ---------- */
+const TRAFFIC_N = 28;
+const ONCOMING_N = 14;
+const TYPE_POOL: CarType[] = ["sedan", "sedan", "sedan", "hatch", "hatch", "hatch", "suv", "suv", "suv", "van", "van", "bus", "truck", "truck"];
 
-function Roadside({ zRef }: { zRef: React.MutableRefObject<number> }) {
-  const facadeTex = useMemo(() => makeFacadeTexture(), []);
-  const bRef = useRef<THREE.InstancedMesh>(null);
-  const lampRef = useRef<THREE.InstancedMesh>(null);
-  const dashRef = useRef<THREE.InstancedMesh>(null);
-  const cycle = SEG_LEN * SEG_COUNT;
-
-  const { bData, lampData, dashData } = useMemo(() => {
-    const rand = mulberry32(42);
-    const bData: { x: number; z: number; w: number; d: number; h: number; c: number }[] = [];
-    for (let s = 0; s < 2; s++) {
-      const side = s === 0 ? -1 : 1;
-      for (let i = 0; i < B_PER_SIDE; i++) {
-        bData.push({
-          x: side * (14 + rand() * 45),
-          z: rand() * cycle,
-          w: 12 + rand() * 14,
-          d: 12 + rand() * 14,
-          h: 15 + rand() * 55,
-          c: Math.floor(rand() * 5),
-        });
-      }
-    }
-    const lampData: { x: number; z: number }[] = [];
-    for (let i = 0; i < LAMPS; i++) {
-      lampData.push({
-        x: (i % 2 ? 1 : -1) * (LANE_W * 1.5 + 2.2),
-        z: (i / LAMPS) * cycle,
-      });
-    }
-    const dashData: { x: number; z: number }[] = [];
-    const dashCount = Math.floor(cycle / 9);
-    for (let i = 0; i < dashCount; i++) {
-      for (const lx of [-LANE_W / 2, LANE_W / 2]) {
-        dashData.push({ x: lx, z: i * 9 });
-      }
-    }
-    return { bData, lampData, dashData };
-  }, [cycle]);
-
-  useFrame(() => {
-    const pz = zRef.current;
-    const im = bRef.current;
-    const lm = lampRef.current;
-    const dm = dashRef.current;
-    if (!im || !lm || !dm) return;
-    // recycle: keep items in the window (pz-cycle+40, pz+40]; ahead = lower z
-    const base = Math.floor(pz / cycle) * cycle;
-    bData.forEach((b, i) => {
-      let z = b.z + base;
-      while (z > pz + 40) z -= cycle;
-      _obj.position.set(b.x, b.h / 2, z);
-      _obj.scale.set(b.w, b.h, b.d);
-      _obj.rotation.set(0, 0, 0);
-      _obj.updateMatrix();
-      im.setMatrixAt(i, _obj.matrix);
-      im.setColorAt(i, _col.set(PALETTE[b.c]));
-    });
-    im.instanceMatrix.needsUpdate = true;
-    if (im.instanceColor) im.instanceColor.needsUpdate = true;
-
-    lampData.forEach((l, i) => {
-      let z = l.z + base;
-      while (z > pz + 40) z -= cycle;
-      _obj.position.set(l.x, 5, z);
-      _obj.scale.setScalar(0.35);
-      _obj.rotation.set(0, 0, 0);
-      _obj.updateMatrix();
-      lm.setMatrixAt(i, _obj.matrix);
-    });
-    lm.instanceMatrix.needsUpdate = true;
-
-    dashData.forEach((d, i) => {
-      let z = d.z + base;
-      while (z > pz + 40) z -= cycle;
-      _obj.position.set(d.x, 0.03, z);
-      _obj.scale.set(0.3, 0.01, 4);
-      _obj.rotation.set(0, 0, 0);
-      _obj.updateMatrix();
-      dm.setMatrixAt(i, _obj.matrix);
-    });
-    dm.instanceMatrix.needsUpdate = true;
-  });
-
-  return (
-    <group>
-      <instancedMesh ref={bRef} args={[undefined, undefined, bData.length]} frustumCulled={false}>
-        <boxGeometry args={[1, 1, 1]} />
-        <meshStandardMaterial
-          emissiveMap={facadeTex}
-          emissive="#ffffff"
-          emissiveIntensity={0.9}
-          roughness={0.8}
-        />
-      </instancedMesh>
-      <instancedMesh ref={lampRef} args={[undefined, undefined, lampData.length]} frustumCulled={false}>
-        <sphereGeometry args={[1, 8, 8]} />
-        <meshStandardMaterial color="#ffd28a" emissive="#ffd28a" emissiveIntensity={3} />
-      </instancedMesh>
-      <instancedMesh ref={dashRef} args={[undefined, undefined, dashData.length]} frustumCulled={false}>
-        <boxGeometry args={[1, 1, 1]} />
-        <meshStandardMaterial
-          color="#e8e8c8"
-          emissive="#e8e8c8"
-          emissiveIntensity={1.2}
-        />
-      </instancedMesh>
-    </group>
-  );
+interface TrafficCar extends FleetCar {
+  lane: number;
+  targetLane: number;
+  laneT: number;
+  cruise: number;
+  speed: number;
+  passed: boolean;
+  halfW: number;
+  halfL: number;
+  blinkT: number;
 }
 
-/* ---------- dashboard / cockpit ---------- */
-function Dashboard({ steerRef }: { steerRef: React.MutableRefObject<number> }) {
-  const wheel = useRef<THREE.Mesh>(null);
-  const group = useRef<THREE.Group>(null);
-  const camera = useThree((s) => s.camera);
-  const scene = useThree((s) => s.scene);
-  // parent the cockpit to the camera itself so it can't lag a frame behind
-  useEffect(() => {
-    const g = group.current;
-    if (!g) return;
-    scene.add(camera);
-    camera.add(g);
-    return () => {
-      camera.remove(g);
-    };
-  }, [camera, scene]);
-  useFrame(() => {
-    if (wheel.current) wheel.current.rotation.z = -steerRef.current * 1.6;
-  });
-  return (
-    <group ref={group}>
-      {/* hood lip — low strip across the bottom of the view */}
-      <mesh position={[0, -0.88, -1.6]}>
-        <boxGeometry args={[4.2, 0.5, 2.0]} />
-        <meshStandardMaterial
-          color="#241a30"
-          roughness={0.5}
-          metalness={0.3}
-          emissive="#1c1226"
-          emissiveIntensity={0.7}
-        />
-      </mesh>
-      {/* dash — slim strip above the wheel */}
-      <mesh position={[0, -0.24, -1.0]}>
-        <boxGeometry args={[2.6, 0.15, 0.3]} />
-        <meshStandardMaterial
-          color="#161220"
-          roughness={0.85}
-          emissive="#0e0a16"
-          emissiveIntensity={0.8}
-        />
-      </mesh>
-      {/* steering wheel — bottom center, ring faces the driver */}
-      <mesh ref={wheel} position={[0, -0.45, -0.8]} rotation={[0.12, 0, 0]}>
-        <torusGeometry args={[0.18, 0.05, 8, 20]} />
-        <meshStandardMaterial
-          color="#2a2a3a"
-          roughness={0.4}
-          metalness={0.4}
-          emissive="#232338"
-          emissiveIntensity={1.0}
-        />
-      </mesh>
-      {/* wheel column */}
-      <mesh position={[0, -0.62, -0.8]} rotation={[0.4, 0, 0]}>
-        <cylinderGeometry args={[0.035, 0.035, 0.3, 6]} />
-        <meshStandardMaterial color="#2c2838" roughness={0.6} />
-      </mesh>
-      {/* speed glow strip on the dash */}
-      <mesh position={[0, -0.155, -1.0]}>
-        <boxGeometry args={[0.8, 0.03, 0.03]} />
-        <meshStandardMaterial color={ACCENT} emissive={ACCENT} emissiveIntensity={1.2} />
-      </mesh>
-    </group>
-  );
+interface OncomingCar extends FleetCar {
+  speed: number;
 }
 
-/* ---------- scene ---------- */
-const TRAFFIC_N = 24;
+function heavy(t: CarType) {
+  return t === "bus" || t === "truck";
+}
 
-function TrafficScene({
-  started,
-  onHud,
-}: {
-  started: boolean;
-  onHud: (h: Hud) => void;
-}) {
+function TrafficScene({ started, onHud }: { started: boolean; onHud: (h: Hud) => void }) {
   const keys = useKeys();
-  const carsGroup = useRef<THREE.Group>(null);
-  const roadRef = useRef<THREE.Mesh>(null);
-  const groundRef = useRef<THREE.Mesh>(null);
   const headlight = useRef<THREE.SpotLight>(null);
+  const headTarget = useMemo(() => new THREE.Object3D(), []);
+  const beam = useRef<THREE.Mesh>(null);
+  const sparks = useRef<ParticleHandle>(null);
   const playerZ = useRef(0);
+  const shift = useRef(0);
   const steerVis = useRef(0);
-
+  const kmhVis = useRef(0);
+  const rpmVis = useRef(0);
+  const focus = useRef(new THREE.Vector3());
   const rand = useMemo(() => mulberry32(1234), []);
+  const beamTex = useMemo(() => beamTexture(), []);
+  const debugCam = useMemo(
+    () => (typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("cam") : null),
+    []
+  );
+  const playerCar = useRef<CarHandle>(null);
 
   const st = useRef({
     pz: 0,
-    px: 0,
+    px: LANE_W,
     vx: 0,
-    speed: 25, // m/s
+    speed: 20,
     score: 0,
+    best: 0,
     combo: 0,
-    makasT: 0,
+    comboT: 0,
     crashT: 0,
+    nitro: 0.5,
+    distAcc: 0,
+    distance: 0,
+    bannerId: 0,
+    bannerText: "",
+    bannerT: 0,
+    shake: 0,
     acc: 0,
     hudT: 0,
-    lastHud: { speed: 0, score: 0, combo: 0, makas: 0, crashed: 0 },
-    makasCount: 0,
+    t: 0,
+    gear: 1,
+    lastHud: null as Hud | null,
   });
 
-  const cars = useMemo(() => {
+  const makeCars = (): TrafficCar[] => {
     const r = mulberry32(777);
-    return Array.from({ length: TRAFFIC_N }, (_, i) => ({
-      lane: Math.floor(r() * 3),
-      z: -60 - i * 35 - r() * 30,
-      speed: 14 + r() * 10,
-      color: CAR_COLORS[Math.floor(r() * CAR_COLORS.length)],
-      passed: false,
-      scored: false,
-    }));
-  }, []);
+    return Array.from({ length: TRAFFIC_N }, (_, i) => {
+      const type = TYPE_POOL[Math.floor(r() * TYPE_POOL.length)];
+      const lane = heavy(type) ? LANES - 1 - Math.floor(r() * 2) : Math.floor(r() * LANES);
+      const spec = buildCar(type, 0).spec;
+      const cruise = heavy(type) ? 14 + r() * 5 : 17 + r() * 11;
+      return {
+        type,
+        color: new THREE.Color(heavy(type) && r() < 0.6 ? "#e8e8e4" : TRAFFIC_PAINTS[Math.floor(r() * TRAFFIC_PAINTS.length)]),
+        x: lane * LANE_W,
+        y: 0,
+        z: -60 - i * 30 - r() * 20,
+        rotY: Math.PI,
+        visible: true,
+        brake: 0,
+        lane,
+        targetLane: lane,
+        laneT: 1,
+        cruise,
+        speed: cruise,
+        passed: false,
+        halfW: spec.W / 2,
+        halfL: spec.L / 2,
+        blinkT: 0,
+      };
+    });
+  };
+  const makeOncoming = (): OncomingCar[] => {
+    const r = mulberry32(999);
+    return Array.from({ length: ONCOMING_N }, (_, i) => {
+      const type = TYPE_POOL[Math.floor(r() * TYPE_POOL.length)];
+      return {
+        type,
+        color: new THREE.Color(TRAFFIC_PAINTS[Math.floor(r() * TRAFFIC_PAINTS.length)]),
+        x: ONCOMING_X[heavy(type) ? 2 : Math.floor(r() * 3)],
+        y: 0,
+        z: -80 - i * 70 - r() * 40,
+        rotY: 0,
+        visible: true,
+        speed: heavy(type) ? 16 + r() * 4 : 20 + r() * 12,
+      };
+    });
+  };
+  // simulation state lives in a ref (mutated every frame); the fleet renderer
+  // reads the very same objects
+  const [world] = useState(() => {
+    const cars = makeCars();
+    const oncoming = makeOncoming();
+    return { cars, oncoming, fleet: [...cars, ...oncoming] as FleetCar[] };
+  });
+  const sim = useRef(world);
+
+  const banner = (text: string) => {
+    const s = st.current;
+    s.bannerId++;
+    s.bannerText = text;
+    s.bannerT = 1.0;
+  };
 
   useFrame(({ camera }, rawDt) => {
     const s = st.current;
+    const { cars, oncoming } = sim.current;
     const cam = camera as THREE.PerspectiveCamera;
     const dt = Math.min(rawDt, 1 / 30);
     const k = keys.current;
+    s.t += dt;
 
     if (started) {
       s.acc += dt;
@@ -274,80 +181,225 @@ function TrafficScene({
         s.acc -= SUB;
       }
     }
-    if (s.makasT > 0) s.makasT -= dt;
+    if (s.bannerT > 0) s.bannerT -= dt;
     if (s.crashT > 0) s.crashT -= dt;
+    if (s.comboT > 0) {
+      s.comboT -= dt;
+      if (s.comboT <= 0) s.combo = 0;
+    }
+    s.shake = Math.max(0, s.shake - dt * 2);
+
+    // floating origin: keep the player within one strip period of z = 0 so
+    // the sky dome, stars and float precision all stay happy
+    if (s.pz < -REBASE) {
+      const k2 = Math.floor(-s.pz / REBASE) * REBASE;
+      s.pz += k2;
+      for (const c of cars) c.z += k2;
+      for (const c of oncoming) c.z += k2;
+      shift.current += k2;
+    }
 
     playerZ.current = s.pz;
-    steerVis.current = s.vx / 6;
-    if (roadRef.current) roadRef.current.position.z = s.pz - 400;
-    if (groundRef.current) groundRef.current.position.z = s.pz - 400;
-    // headlight beam onto the road ahead
+    focus.current.set(s.px, 0, s.pz);
+    steerVis.current += (s.vx / 9 - steerVis.current) * Math.min(1, 10 * dt);
+    kmhVis.current = s.speed * 3.6;
+    // fake 6-speed gearbox for the rev counter
+    const gearTop = [0, 14, 24, 34, 44, 54, 70];
+    while (s.gear < 6 && s.speed > gearTop[s.gear]) s.gear++;
+    while (s.gear > 1 && s.speed < gearTop[s.gear - 1] - 3) s.gear--;
+    const lo = gearTop[s.gear - 1];
+    const hi = gearTop[s.gear];
+    const targetRpm = 1.2 + ((s.speed - lo) / (hi - lo)) * 5.6;
+    rpmVis.current += (THREE.MathUtils.clamp(targetRpm, 0.9, 7.6) - rpmVis.current) * Math.min(1, 8 * dt);
+
     if (headlight.current) {
-      headlight.current.position.set(s.px, 1.1, s.pz - 1);
-      _headTarget.position.set(s.px + s.vx * 0.5, 0, s.pz - 45);
-      _headTarget.updateMatrixWorld();
-      headlight.current.target = _headTarget;
+      headlight.current.position.set(s.px + 0.0, 0.75, s.pz - 2.4);
+      headTarget.position.set(s.px + s.vx * 0.5, 0, s.pz - 45);
+      headTarget.updateMatrixWorld();
+    }
+    if (beam.current) {
+      beam.current.position.set(s.px, 0.035, s.pz - 12.5);
+      beam.current.rotation.set(-Math.PI / 2, 0, Math.PI - s.vx * 0.03);
     }
 
-    // camera: dashboard cam
-    const shake = Math.min(0.06, s.speed * 0.0006);
+    // camera: driver's eye, with road-feel shake and lean into lane changes
+    const nitro = (k.has("ShiftLeft") || k.has("ShiftRight")) && s.nitro > 0.02 && started;
+    const rough = Math.min(0.012, s.speed * 0.00018) + s.shake * 0.06 + (nitro ? 0.006 : 0);
     cam.position.set(
-      s.px + (Math.random() - 0.5) * shake,
-      1.3 + (Math.random() - 0.5) * shake,
-      s.pz
+      s.px - 0.36 + Math.sin(s.t * 31) * rough,
+      EYE_Y + Math.sin(s.t * 27.3 + 1.1) * rough + Math.sin(s.t * 3.1) * 0.004,
+      s.pz + 0.6
     );
-    cam.lookAt(s.px + s.vx * 0.4, 1.0, s.pz - 20);
-    cam.fov += (70 + s.speed * 0.12 - cam.fov) * 0.08;
+    cam.lookAt(s.px - 0.36 + s.vx * 0.45, EYE_Y - 0.7, s.pz - 30);
+    cam.rotateZ(-s.vx * 0.006);
+    cam.fov += (66 + s.speed * 0.16 + (nitro ? 7 : 0) - cam.fov) * Math.min(1, 5 * dt);
+    if (debugCam) {
+      // debug views (?cam=chase / ?cam=side) — third person, cockpit hidden
+      if (debugCam === "side") {
+        cam.position.set(s.px - 9, 1.6, s.pz - 6);
+        cam.lookAt(s.px + 2, 1, s.pz - 16);
+      } else if (debugCam === "low") {
+        cam.position.set(s.px + 1.6, 1.5, s.pz + 7);
+        cam.lookAt(s.px + 1, 1.0, s.pz - 30);
+      } else {
+        cam.position.set(s.px, 4.2, s.pz + 11);
+        cam.lookAt(s.px, 1.2, s.pz - 25);
+      }
+      cam.fov = 55;
+    }
     cam.updateProjectionMatrix();
+    const pc = playerCar.current?.group;
+    if (pc) {
+      pc.position.set(s.px, 0, s.pz);
+      pc.rotation.y = Math.PI - s.vx * 0.02;
+    }
 
-    // traffic cars
-    const grp = carsGroup.current;
-    if (grp) {
-      grp.children.forEach((child, i) => {
-        const c = cars[i];
-        if (started) c.z -= c.speed * dt;
-        // recycle ahead when passed far behind player
-        if (c.z > s.pz + 30) {
-          c.z = s.pz - 450 - rand() * 250;
-          c.lane = Math.floor(rand() * 3);
-          c.speed = 14 + rand() * 10;
-          c.passed = false;
+    // ---- same-direction traffic (moves towards -Z) ----
+    for (let i = 0; i < cars.length; i++) {
+      const c = cars[i];
+      if (started) {
+        // car-following: slow down behind a slower car (or the player)
+        let gapMin = Infinity;
+        let leadSpeed = c.cruise;
+        for (let j = 0; j < cars.length; j++) {
+          if (j === i) continue;
+          const o = cars[j];
+          if (Math.abs(o.x - c.x) > 2.4) continue;
+          const gap = c.z - o.z - c.halfL - o.halfL;
+          if (gap > 0 && gap < gapMin) {
+            gapMin = gap;
+            leadSpeed = o.speed;
+          }
         }
-        // near-miss / collision detection
-        const dz = c.z - s.pz;
-        const dx = c.lane * LANE_W - s.px;
-        if (!c.passed && dz > -1.5 && dz < 1.5) {
-          const ax = Math.abs(dx);
-          if (ax < 0.95) {
-            s.crashT = 1.5;
-            s.speed = Math.max(17, s.speed * 0.4);
-            s.combo = 0;
-          } else if (ax < 2.4) {
-            s.combo += 1;
-            s.score += 100 * s.combo;
-            s.makasT = 1.2;
-            s.makasCount++;
+        if (Math.abs(s.px - c.x) < 2.4) {
+          const gap = c.z - s.pz - c.halfL - PLAYER_HALF_L;
+          if (gap > 0 && gap < gapMin) {
+            gapMin = gap;
+            leadSpeed = s.speed;
+          }
+        }
+        let target = c.cruise;
+        if (gapMin < 32) target = Math.min(target, leadSpeed + (gapMin - 12) * 0.25);
+        target = Math.max(0, target);
+        const accel = target < c.speed ? 7 : 2.5;
+        c.speed += THREE.MathUtils.clamp(target - c.speed, -accel * dt, accel * dt);
+        c.brake = target < c.speed - 0.3 || (gapMin < 16 && leadSpeed < c.speed) ? 1 : Math.max(0, (c.brake ?? 0) - dt * 3);
+        c.z -= c.speed * dt;
+
+        // overtake when stuck behind a slower car
+        if (c.laneT >= 1 && gapMin < 28 && leadSpeed < c.cruise - 3 && !heavy(c.type) && rand() < dt * 1.2) {
+          const dir = rand() < 0.5 ? -1 : 1;
+          for (const d of [dir, -dir]) {
+            const nl = c.lane + d;
+            if (nl < 0 || nl >= LANES) continue;
+            const nx = nl * LANE_W;
+            const blocked =
+              cars.some((o) => o !== c && Math.abs(o.x - nx) < 2.6 && Math.abs(o.z - c.z) < o.halfL + c.halfL + 8) ||
+              (Math.abs(s.px - nx) < 2.6 && Math.abs(s.pz - c.z) < c.halfL + 10);
+            if (!blocked) {
+              c.targetLane = nl;
+              c.laneT = 0;
+              break;
+            }
+          }
+        }
+        if (c.laneT < 1) {
+          c.laneT = Math.min(1, c.laneT + dt * 0.45);
+          const e = c.laneT * c.laneT * (3 - 2 * c.laneT);
+          c.x = THREE.MathUtils.lerp(c.lane * LANE_W, c.targetLane * LANE_W, e);
+          if (c.laneT >= 1) c.lane = c.targetLane;
+        } else c.x = c.lane * LANE_W;
+      }
+      // recycle far ahead once left behind
+      if (c.z > s.pz + 40) {
+        c.lane = heavy(c.type) ? LANES - 1 - Math.floor(rand() * 2) : Math.floor(rand() * LANES);
+        c.targetLane = c.lane;
+        c.laneT = 1;
+        c.x = c.lane * LANE_W;
+        c.cruise = heavy(c.type) ? 14 + rand() * 5 : 16 + rand() * 12;
+        c.speed = c.cruise;
+        c.color.set(heavy(c.type) && rand() < 0.6 ? "#e8e8e4" : TRAFFIC_PAINTS[Math.floor(rand() * TRAFFIC_PAINTS.length)]);
+        let z = s.pz - 420 - rand() * 320;
+        for (let tries = 0; tries < 8; tries++) {
+          const conflict = cars.some((o) => o !== c && Math.abs(o.x - c.x) < 2.4 && Math.abs(o.z - z) < o.halfL + c.halfL + 14);
+          if (!conflict) break;
+          z -= 30;
+        }
+        c.z = z;
+        c.passed = false;
+      }
+      // near-miss / collision
+      const dz = c.z - s.pz;
+      const dx = c.x - s.px;
+      const zOverlap = c.halfL + PLAYER_HALF_L;
+      if (!c.passed && dz > -zOverlap && dz < zOverlap) {
+        const ax = Math.abs(dx);
+        const crashX = c.halfW + PLAYER_HALF_W;
+        if (ax < crashX && s.crashT <= 0) {
+          s.crashT = 1.6;
+          s.shake = 1;
+          s.speed = Math.max(10, Math.min(s.speed, c.speed) * 0.6);
+          s.combo = 0;
+          s.nitro = Math.max(0, s.nitro - 0.3);
+          c.speed *= 0.7;
+          for (let p = 0; p < 34; p++) {
+            _tmp2.set((Math.random() - 0.5) * 10, Math.random() * 6, 6 + Math.random() * 10);
+            sparks.current?.emit(_tmp.set(s.px + dx * 0.5, 0.8, s.pz - 2.2), _tmp2, { life: 0.6, size: 0.6, color: "#ffb347", grow: 0.3 });
           }
           c.passed = true;
+        } else if (ax >= crashX && ax < crashX + 1.3 && dz < -c.halfL * 0.2 && s.speed > 18) {
+          s.combo += 1;
+          s.comboT = 2.5;
+          const closeness = 1 - (ax - crashX) / 1.3;
+          const bonus = heavy(c.type) ? 1.5 : 1;
+          const pts = Math.round((60 + closeness * 90) * Math.min(8, s.combo) * (s.speed / 40) * bonus);
+          s.score += pts;
+          s.nitro = Math.min(1, s.nitro + 0.12 + closeness * 0.1);
+          banner(closeness > 0.6 ? `MAKAS! +${pts}` : `+${pts}`);
+          c.passed = true;
         }
-        child.position.set(c.lane * LANE_W, 0.02, c.z);
-        child.rotation.y = Math.PI; // faces -z
-      });
+      }
+      c.rotY = Math.PI + (c.laneT < 1 ? (c.lane - c.targetLane) * 0.06 * Math.sin(c.laneT * Math.PI) : 0);
     }
 
-    // HUD 10Hz
+    // ---- oncoming ----
+    for (const c of oncoming) {
+      if (started) c.z += c.speed * dt;
+      if (c.z > s.pz + 50) {
+        c.z = s.pz - 700 - rand() * 500;
+        c.x = ONCOMING_X[heavy(c.type) ? 2 : Math.floor(rand() * 3)];
+        c.speed = heavy(c.type) ? 16 + rand() * 4 : 20 + rand() * 14;
+        c.color.set(TRAFFIC_PAINTS[Math.floor(rand() * TRAFFIC_PAINTS.length)]);
+      }
+    }
+
+    // ---- HUD 10Hz ----
     s.hudT += dt;
     if (s.hudT > 0.1) {
       s.hudT = 0;
-      const nh = {
+      s.best = Math.max(s.best, s.score);
+      const nh: Hud = {
         speed: Math.round(s.speed * 3.6),
         score: Math.round(s.score),
         combo: s.combo,
-        makas: s.makasT > 0 ? s.makasCount : 0,
-        crashed: s.crashT > 0 ? 1 : 0,
+        crashed: s.crashT > 0,
+        nitro: Math.round(s.nitro * 100) / 100,
+        distance: Math.round(s.distance / 100) / 10,
+        bannerId: s.bannerT > 0 ? s.bannerId : 0,
+        bannerText: s.bannerText,
+        best: Math.round(s.best),
       };
-      const o = s.lastHud;
-      if (JSON.stringify(nh) !== JSON.stringify(o)) {
+      const l = s.lastHud;
+      if (
+        !l ||
+        l.speed !== nh.speed ||
+        l.score !== nh.score ||
+        l.combo !== nh.combo ||
+        l.crashed !== nh.crashed ||
+        l.nitro !== nh.nitro ||
+        l.distance !== nh.distance ||
+        l.bannerId !== nh.bannerId
+      ) {
         s.lastHud = nh;
         onHud(nh);
       }
@@ -355,64 +407,70 @@ function TrafficScene({
 
     function step(h: number) {
       const stt = st.current;
-      // speed
-      if (k.has("KeyW") || k.has("ArrowUp")) stt.speed = Math.min(61, stt.speed + 18 * h);
-      else if (k.has("Space")) stt.speed = Math.max(0, stt.speed - 40 * h);
-      else if (k.has("KeyS") || k.has("ArrowDown")) stt.speed = Math.max(8, stt.speed - 25 * h);
-      stt.speed *= Math.exp(-0.06 * h);
-      stt.speed = Math.max(0, stt.speed);
-      // lateral
+      const nitroOn = (k.has("ShiftLeft") || k.has("ShiftRight")) && stt.nitro > 0.02;
+      const gas = k.has("KeyW") || k.has("ArrowUp");
+      const brake = k.has("KeyS") || k.has("ArrowDown") || k.has("Space");
+      if (nitroOn) {
+        stt.speed = Math.min(MAX_SPEED * 1.15, stt.speed + 28 * h);
+        stt.nitro = Math.max(0, stt.nitro - 0.35 * h);
+      } else if (gas) stt.speed = Math.min(MAX_SPEED, stt.speed + 16 * h * (1 - stt.speed / (MAX_SPEED * 1.2)));
+      else if (brake) stt.speed = Math.max(0, stt.speed - 30 * h);
+      else stt.speed = Math.max(0, stt.speed - 3 * h);
+      if (stt.crashT > 0.8) stt.speed = Math.min(stt.speed, 14);
+
       const inX = (k.has("KeyD") || k.has("ArrowRight") ? 1 : 0) - (k.has("KeyA") || k.has("ArrowLeft") ? 1 : 0);
-      stt.vx += (inX * 6 - stt.vx) * Math.min(1, 8 * h);
+      const agility = 7 + Math.min(4, stt.speed * 0.08);
+      stt.vx += (inX * agility - stt.vx) * Math.min(1, 9 * h);
       stt.px += stt.vx * h;
-      stt.px = THREE.MathUtils.clamp(stt.px, -LANE_W * 1.6, LANE_W * 1.6);
-      stt.pz -= stt.speed * h;
+      const minX = -LANE_W * 0.35;
+      const maxX = LANE_W * (LANES - 1) + LANE_W * 0.35;
+      if (stt.px < minX) {
+        stt.px = minX;
+        if (stt.vx < 0) {
+          stt.vx = -stt.vx * 0.2;
+          stt.shake = Math.max(stt.shake, 0.4);
+          stt.speed *= 0.995;
+        }
+      }
+      if (stt.px > maxX) {
+        stt.px = maxX;
+        if (stt.vx > 0) {
+          stt.vx = -stt.vx * 0.2;
+          stt.shake = Math.max(stt.shake, 0.4);
+          stt.speed *= 0.995;
+        }
+      }
+      const moved = stt.speed * h;
+      stt.pz -= moved;
+      stt.distance += moved;
+      if (stt.speed > 30) {
+        stt.distAcc += moved;
+        if (stt.distAcc > 10) {
+          stt.distAcc -= 10;
+          stt.score += 1 + (stt.speed > 50 ? 1 : 0);
+        }
+      }
     }
-  });
+  }, -1); // run before the scenery so a floating-origin shift is seen the same frame
 
   return (
     <>
-      <color attach="background" args={["#070714"]} />
-      <fog attach="fog" args={["#070714", 120, 500]} />
-      <Stars radius={600} depth={50} count={3000} factor={4} fade />
-      <ambientLight intensity={0.5} />
-      <hemisphereLight args={["#4455aa", "#221133", 0.8]} />
-      <directionalLight position={[200, 300, 100]} intensity={0.5} color="#8899ff" />
+      <WorldAtmosphere preset="night" focus={focus} />
+      <Highway zRef={playerZ} shiftRef={shift} />
 
-      {/* headlight */}
-      <spotLight
-        ref={headlight}
-        color="#cfd9ff"
-        intensity={260}
-        distance={70}
-        angle={0.5}
-        penumbra={0.6}
-      />
-      <primitive object={_headTarget} />
-
-      {/* road slab follows player */}
-      <mesh ref={roadRef} rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, -400]}>
-        <planeGeometry args={[LANE_W * 3 + 8, 1200]} />
-        <meshStandardMaterial color="#1a1a24" roughness={0.9} />
-      </mesh>
-      {/* ground beyond */}
-      <mesh ref={groundRef} rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.08, -400]}>
-        <planeGeometry args={[600, 1400]} />
-        <meshStandardMaterial color="#0c0c14" roughness={1} />
+      {/* player's headlights */}
+      <spotLight ref={headlight} color="#e4ecff" intensity={420} distance={110} angle={0.42} penumbra={0.6} decay={1.5} target={headTarget} />
+      <primitive object={headTarget} />
+      <mesh ref={beam}>
+        <planeGeometry args={[9, 22]} />
+        <meshBasicMaterial map={beamTex} color="#c9d8ff" transparent opacity={0.12} blending={THREE.AdditiveBlending} depthWrite={false} />
       </mesh>
 
-      <Roadside zRef={playerZ} />
-      <Dashboard steerRef={steerVis} />
-
-      <group ref={carsGroup}>
-        {cars.map((c, i) => (
-          <Car key={i} color={c.color} glow="#2de2ff" />
-        ))}
-      </group>
-
-      <EffectComposer>
-        <Bloom luminanceThreshold={0.7} intensity={0.9} mipmapBlur />
-      </EffectComposer>
+      <TrafficFleet cars={world.fleet} />
+      <Cockpit steerRef={steerVis} speedRef={kmhVis} rpmRef={rpmVis} color="#b4530a" visible={!debugCam} />
+      {debugCam && <Car ref={playerCar} color="#b4530a" headlights={false} underglow={false} />}
+      <Particles ref={sparks} count={300} gravity={-12} drag={1} blending={THREE.AdditiveBlending} />
+      <WorldEffects preset="night" />
     </>
   );
 }
@@ -422,38 +480,29 @@ export default function Traffic({ started }: { started: boolean }) {
     speed: 0,
     score: 0,
     combo: 0,
-    makas: 0,
-    crashed: 0,
+    crashed: false,
+    nitro: 0.5,
+    distance: 0,
+    bannerId: 0,
+    bannerText: "",
+    best: 0,
   });
 
   return (
     <div className="absolute inset-0">
-      <Canvas
-        dpr={[1, 1.5]}
-        gl={{ antialias: true, powerPreference: "high-performance" }}
-        camera={{ fov: 70, near: 0.1, far: 1500 }}
-      >
+      <Canvas shadows dpr={[1, 1.5]} gl={CANVAS_GL} camera={{ fov: 66, near: 0.05, far: 3000 }}>
         <TrafficScene started={started} onHud={setHud} />
       </Canvas>
-      <div className="absolute top-16 right-6 space-y-2">
-        <HudStat label="Hız" value={`${hud.speed} km/h`} accent={ACCENT} />
-        <HudStat label="Skor" value={`${hud.score}`} accent="#4ade80" />
-        <HudStat label="Kombo" value={`×${hud.combo}`} accent="#f472b6" />
+      <div className="absolute top-4 right-4 flex flex-col gap-2 items-end">
+        <HudStat label="Skor" value={`${hud.score}`} accent={ACCENT} sub={hud.combo > 1 ? `×${Math.min(8, hud.combo)} kombo` : undefined} />
+        <HudStat label="Hız" value={`${hud.speed} km/h`} accent="#14141f" />
+        <HudStat label="Mesafe" value={`${hud.distance.toFixed(1)} km`} accent="#6b6880" />
+        <HudBar label="Nitro" value={hud.nitro} accent="#0ea5e9" />
       </div>
-      {hud.makas > 0 && (
-        <div className="absolute top-1/3 inset-x-0 flex justify-center pointer-events-none">
-          <span
-            className="text-3xl font-black italic"
-            style={{ color: ACCENT, textShadow: `0 0 25px ${ACCENT}` }}
-          >
-            Makas!
-          </span>
-        </div>
-      )}
-      {hud.crashed > 0 && (
-        <div className="absolute inset-0 bg-red-900/25 flex items-center justify-center pointer-events-none">
-          <span className="text-3xl font-extrabold text-red-400">Çarptın!</span>
-        </div>
+      {hud.bannerId > 0 && <HudBanner keyId={hud.bannerId} text={hud.bannerText} accent={ACCENT} />}
+      {hud.crashed && <HudModal title="Çarptın!" accent="#e11d48" lines={["Kombo sıfırlandı, hız düştü"]} tone="danger" />}
+      {started && hud.score === 0 && hud.speed < 25 && (
+        <HudCenter text="W: gaz · A/D: şerit · Shift: nitro · Arabalara yakın geç, çarpma!" />
       )}
     </div>
   );

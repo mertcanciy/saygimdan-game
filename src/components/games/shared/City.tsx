@@ -1,251 +1,381 @@
 "use client";
 
-import { useMemo, useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
-import { Stars } from "@react-three/drei";
-import { mulberry32, type CityData } from "./city";
+import type { Building, CityData } from "./cityGen";
+import { getFacadeMaterial, makeFacadeAttributes } from "./facade";
+import {
+  asphaltTexture,
+  grassTexture,
+  lampGeometries,
+  pavingTexture,
+  roadMarkingTexture,
+  treeGeometries,
+} from "./streetAssets";
 
-const PALETTE = ["#1b2138", "#232946", "#2a2038", "#1a2530", "#241d33"];
-
-export function makeFacadeTexture(): THREE.CanvasTexture {
+/** Soft radial glow (light pools, halos). */
+export function makeGlowTexture(inner = "rgba(255,255,255,0.9)", outer = "rgba(255,255,255,0)"): THREE.CanvasTexture {
   const c = document.createElement("canvas");
-  c.width = 64;
+  c.width = 128;
   c.height = 128;
   const g = c.getContext("2d")!;
-  g.fillStyle = "#14182a";
-  g.fillRect(0, 0, 64, 128);
-  const rand = mulberry32(99);
-  for (let y = 6; y < 122; y += 10) {
-    for (let x = 5; x < 60; x += 9) {
-      const lit = rand();
-      if (lit < 0.32) {
-        g.fillStyle = rand() < 0.7 ? "#ffd9a0" : "#9fdcff";
-      } else {
-        g.fillStyle = "#0a0d18";
-      }
-      g.fillRect(x, y, 5, 6);
-    }
-  }
+  const grad = g.createRadialGradient(64, 64, 2, 64, 64, 62);
+  grad.addColorStop(0, inner);
+  grad.addColorStop(1, outer);
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 128, 128);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }
 
-function makeRoadTexture(): THREE.CanvasTexture {
-  const c = document.createElement("canvas");
-  c.width = 64;
-  c.height = 64;
-  const g = c.getContext("2d")!;
-  g.fillStyle = "#101018";
-  g.fillRect(0, 0, 64, 64);
-  g.strokeStyle = "#3a3a48";
-  g.lineWidth = 2;
-  g.beginPath();
-  g.moveTo(6, 0);
-  g.lineTo(6, 64);
-  g.moveTo(58, 0);
-  g.lineTo(58, 64);
-  g.stroke();
-  g.strokeStyle = "#8a8a55";
-  g.setLineDash([10, 12]);
-  g.beginPath();
-  g.moveTo(32, 0);
-  g.lineTo(32, 64);
-  g.stroke();
-  const tex = new THREE.CanvasTexture(c);
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
-
-const tmpObj = new THREE.Object3D();
+const tmp = new THREE.Object3D();
 const tmpColor = new THREE.Color();
 
-export default function City({ city }: { city: CityData }) {
-  const buildingsRef = useRef<THREE.InstancedMesh>(null);
-  const lampRef = useRef<THREE.InstancedMesh>(null);
-  const poleRef = useRef<THREE.InstancedMesh>(null);
-  const neonRef = useRef<THREE.InstancedMesh>(null);
+type Setter<T> = (item: T, o: THREE.Object3D, i: number) => void;
 
-  const facadeTex = useMemo(() => makeFacadeTexture(), []);
-  const roadTex = useMemo(() => {
-    const t = makeRoadTexture();
-    // tile the asphalt strip along the road length
-    t.repeat.set(city.size / 16, 1);
-    return t;
-  }, [city.size]);
-
-  const lampPositions = useMemo(() => {
-    const pts: { x: number; z: number }[] = [];
-    const half = city.size / 2;
-    for (const r of city.roads) {
-      for (let t = -half + 12; t < half - 12; t += 25) {
-        const side = ((Math.round(t / 25) % 2) * 2 - 1) * (city.roadWidth / 2 - 1);
-        if (r.axis === "x") pts.push({ x: t, z: r.pos + side });
-        else pts.push({ x: r.pos + side, z: t });
+/** Write instance matrices for `list` into an InstancedMesh ref. */
+function useInstanceLayout<T>(
+  ref: React.RefObject<THREE.InstancedMesh | null>,
+  list: T[],
+  set: Setter<T>,
+  color?: (item: T, c: THREE.Color, i: number) => void
+) {
+  useLayoutEffect(() => {
+    const im = ref.current;
+    if (!im) return;
+    list.forEach((item, i) => {
+      tmp.position.set(0, 0, 0);
+      tmp.rotation.set(0, 0, 0);
+      tmp.scale.set(1, 1, 1);
+      set(item, tmp, i);
+      tmp.updateMatrix();
+      im.setMatrixAt(i, tmp.matrix);
+      if (color) {
+        color(item, tmpColor, i);
+        im.setColorAt(i, tmpColor);
       }
-    }
-    return pts;
-  }, [city]);
+    });
+    im.count = list.length;
+    im.instanceMatrix.needsUpdate = true;
+    if (im.instanceColor) im.instanceColor.needsUpdate = true;
+    im.computeBoundingSphere();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [list]);
+}
 
-  const neonAccents = useMemo(() => {
-    const rand = mulberry32(city.size | 0);
-    const out: {
-      x: number;
-      y: number;
-      z: number;
-      len: number;
-      alongZ: boolean;
-      pink: boolean;
-    }[] = [];
-    const bs = city.buildings;
-    for (let i = 0; i < 20 && bs.length > 0; i++) {
-      const b = bs[Math.floor(rand() * bs.length)];
-      const side = rand() < 0.5 ? 1 : -1;
-      const alongZ = rand() < 0.5;
-      out.push({
-        x: b.x + (alongZ ? side * (b.w / 2 + 0.06) : 0),
-        z: b.z + (alongZ ? 0 : side * (b.d / 2 + 0.06)),
-        y: 8 + rand() * 12,
-        len: (alongZ ? b.d : b.w) * 0.6,
-        alongZ,
-        pink: rand() < 0.5,
-      });
-    }
+interface Volume {
+  x: number;
+  z: number;
+  w: number;
+  d: number;
+  y0: number;
+  h: number;
+  style: number;
+  seed: number;
+  solid?: boolean;
+}
+
+function parapetsFor(b: Building): Volume[] {
+  const t = 0.35;
+  const ph = 1.1;
+  const base = { y0: b.h, h: b.h + ph, style: b.style, seed: b.seed, solid: true };
+  return [
+    { ...base, x: b.x, z: b.z + b.d / 2 - t / 2, w: b.w, d: t },
+    { ...base, x: b.x, z: b.z - b.d / 2 + t / 2, w: b.w, d: t },
+    { ...base, x: b.x + b.w / 2 - t / 2, z: b.z, w: t, d: b.d - t * 2 },
+    { ...base, x: b.x - b.w / 2 + t / 2, z: b.z, w: t, d: b.d - t * 2 },
+  ];
+}
+
+export default function City({
+  city,
+  night = 0,
+}: {
+  city: CityData;
+  /** 0 = day … 1 = night: lit windows, glowing lamps and storefronts */
+  night?: number;
+  /** @deprecated kept for older call sites */
+  lampSpacing?: number;
+  /** @deprecated kept for older call sites */
+  billboards?: number;
+}) {
+  const facade = getFacadeMaterial();
+  facade.uniforms.uNight.value = night;
+
+  // ---------- buildings (+ skyline + parapets) in a single instanced draw ----------
+  const volumes = useMemo<Volume[]>(() => {
+    const out: Volume[] = [...city.buildings, ...city.skyline];
+    for (const b of city.buildings) if (b.top && b.w > 6) out.push(...parapetsFor(b));
     return out;
   }, [city]);
 
-  useLayoutEffect(() => {
-    const im = buildingsRef.current;
-    if (!im) return;
-    city.buildings.forEach((b, i) => {
-      tmpObj.position.set(b.x, b.h / 2, b.z);
-      tmpObj.scale.set(b.w, b.h, b.d);
-      tmpObj.rotation.set(0, 0, 0);
-      tmpObj.updateMatrix();
-      im.setMatrixAt(i, tmpObj.matrix);
-      im.setColorAt(i, tmpColor.set(PALETTE[b.colorIdx % PALETTE.length]));
-    });
-    im.instanceMatrix.needsUpdate = true;
-    if (im.instanceColor) im.instanceColor.needsUpdate = true;
+  const buildingGeo = useMemo(() => {
+    const g = new THREE.BoxGeometry(1, 1, 1);
+    const { aBox, aParams } = makeFacadeAttributes(volumes);
+    g.setAttribute("aBox", aBox);
+    g.setAttribute("aParams", aParams);
+    return g;
+  }, [volumes]);
 
-    const lm = lampRef.current;
-    const pm = poleRef.current;
-    if (lm && pm) {
-      lampPositions.forEach((p, i) => {
-        tmpObj.position.set(p.x, 5, p.z);
-        tmpObj.scale.set(0.35, 0.35, 0.35);
-        tmpObj.updateMatrix();
-        lm.setMatrixAt(i, tmpObj.matrix);
-        tmpObj.position.set(p.x, 2.5, p.z);
-        tmpObj.scale.set(0.12, 5, 0.12);
-        tmpObj.updateMatrix();
-        pm.setMatrixAt(i, tmpObj.matrix);
-      });
-      lm.instanceMatrix.needsUpdate = true;
-      pm.instanceMatrix.needsUpdate = true;
+  const buildingRef = useRef<THREE.InstancedMesh>(null);
+  useInstanceLayout(buildingRef, volumes, (b, o) => {
+    o.position.set(b.x, (b.y0 + b.h) / 2, b.z);
+    o.scale.set(b.w, b.h - b.y0, b.d);
+  });
+
+  // ---------- ground + road markings ----------
+  const groundMat = useMemo(() => {
+    const t = asphaltTexture().clone();
+    const s = city.size + 12000;
+    t.repeat.set(s / 8, s / 8);
+    t.needsUpdate = true;
+    return new THREE.MeshStandardMaterial({ map: t, roughness: 0.93, metalness: 0, color: "#ffffff" });
+  }, [city.size]);
+
+  const segments = useMemo(() => {
+    const out: { x: number; z: number; rotY: number }[] = [];
+    const half = city.size / 2;
+    const cell = city.blockSize + city.roadWidth;
+    const pz = city.plaza;
+    for (const r of city.roads) {
+      for (let i = 0; i < city.blocks; i++) {
+        const c = -half + city.roadWidth + city.blockSize / 2 + i * cell;
+        const x = r.axis === "x" ? c : r.pos;
+        const z = r.axis === "x" ? r.pos : c;
+        if (pz && Math.abs(x - pz.x) < pz.w / 2 && Math.abs(z - pz.z) < pz.d / 2) continue;
+        out.push({ x, z, rotY: r.axis === "x" ? 0 : Math.PI / 2 });
+      }
     }
+    return out;
+  }, [city]);
+  const markMat = useMemo(
+    () =>
+      new THREE.MeshStandardMaterial({
+        map: roadMarkingTexture(city.blockSize, city.roadWidth),
+        transparent: true,
+        roughness: 0.7,
+        depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+        polygonOffsetUnits: -2,
+      }),
+    [city.blockSize, city.roadWidth]
+  );
+  const markRef = useRef<THREE.InstancedMesh>(null);
+  useInstanceLayout(markRef, segments, (s, o) => {
+    o.position.set(s.x, 0.015, s.z);
+    o.rotation.set(-Math.PI / 2, 0, s.rotY);
+  });
 
-    const nm = neonRef.current;
-    if (nm) {
-      neonAccents.forEach((n, i) => {
-        tmpObj.position.set(n.x, n.y, n.z);
-        // strip runs along the wall face
-        if (n.alongZ) tmpObj.scale.set(0.12, 0.18, n.len);
-        else tmpObj.scale.set(n.len, 0.18, 0.12);
-        tmpObj.updateMatrix();
-        nm.setMatrixAt(i, tmpObj.matrix);
-        nm.setColorAt(i, tmpColor.set(n.pink ? "#ff2d95" : "#2de2ff"));
-      });
-      nm.instanceMatrix.needsUpdate = true;
-      if (nm.instanceColor) nm.instanceColor.needsUpdate = true;
+  const outskirts = useMemo(() => {
+    const half = city.size / 2 + 2;
+    const far = 6000;
+    const w = far * 2;
+    const band = far - half;
+    return [
+      { x: 0, z: -(half + band / 2), w, d: band },
+      { x: 0, z: half + band / 2, w, d: band },
+      { x: -(half + band / 2), z: 0, w: band, d: half * 2 },
+      { x: half + band / 2, z: 0, w: band, d: half * 2 },
+    ];
+  }, [city.size]);
+  const outskirtMat = useMemo(() => {
+    const t = pavingTexture().clone();
+    t.repeat.set(1500, 1500);
+    t.needsUpdate = true;
+    return new THREE.MeshStandardMaterial({ map: t, color: "#b9b6ae", roughness: 0.95 });
+  }, []);
+
+  // ---------- sidewalks / parks ----------
+  const curbRef = useRef<THREE.InstancedMesh>(null);
+  const paveRef = useRef<THREE.InstancedMesh>(null);
+  const parkRef = useRef<THREE.InstancedMesh>(null);
+  useInstanceLayout(curbRef, city.blockCenters, (c, o) => {
+    o.position.set(c.x, 0.09, c.z);
+    o.scale.set(city.blockSize, 0.18, city.blockSize);
+  });
+  useInstanceLayout(paveRef, city.blockCenters, (c, o) => {
+    o.position.set(c.x, 0.182, c.z);
+    o.rotation.set(-Math.PI / 2, 0, 0);
+    o.scale.set(city.blockSize - 0.5, city.blockSize - 0.5, 1);
+  });
+  useInstanceLayout(parkRef, city.parks, (p, o) => {
+    o.position.set(p.x, 0.19, p.z);
+    o.rotation.set(-Math.PI / 2, 0, 0);
+    o.scale.set(p.w, p.d, 1);
+  });
+  const paveMat = useMemo(() => {
+    const t = pavingTexture().clone();
+    t.repeat.set(city.blockSize / 2, city.blockSize / 2);
+    t.needsUpdate = true;
+    return new THREE.MeshStandardMaterial({ map: t, roughness: 0.9 });
+  }, [city.blockSize]);
+  const grassMat = useMemo(() => {
+    const t = grassTexture().clone();
+    t.repeat.set(city.blockSize / 4, city.blockSize / 4);
+    t.needsUpdate = true;
+    return new THREE.MeshStandardMaterial({ map: t, roughness: 1 });
+  }, [city.blockSize]);
+
+  // ---------- trees ----------
+  const tree = treeGeometries();
+  const trunkRef = useRef<THREE.InstancedMesh>(null);
+  const crownRef = useRef<THREE.InstancedMesh>(null);
+  useInstanceLayout(trunkRef, city.trees, (t, o) => {
+    o.position.set(t.x, 0.18, t.z);
+    o.rotation.set(0, t.r, 0);
+    o.scale.setScalar(t.s);
+  });
+  useInstanceLayout(
+    crownRef,
+    city.trees,
+    (t, o) => {
+      o.position.set(t.x, 0.18, t.z);
+      o.rotation.set(0, t.r, 0);
+      o.scale.set(t.s, t.s * (0.9 + (t.r % 0.3)), t.s);
+    },
+    (t, c) => {
+      const k = (t.r * 7.13) % 1;
+      c.setRGB(0.22 + k * 0.12, 0.36 + k * 0.12, 0.14 + k * 0.05);
     }
-  }, [city, lampPositions, neonAccents]);
+  );
 
-  const roadSegments = useMemo(() => {
-    return city.roads.map((r, i) => {
-      const len = city.size;
-      return (
-        <mesh
-          key={i}
-          rotation={[-Math.PI / 2, 0, r.axis === "x" ? 0 : Math.PI / 2]}
-          position={
-            r.axis === "x" ? [0, 0.02, r.pos] : [r.pos, 0.02, 0]
-          }
-        >
-          <planeGeometry args={[len, city.roadWidth]} />
-          <meshBasicMaterial
-            map={roadTex}
-            color="#888888"
-          />
-        </mesh>
-      );
-    });
-  }, [city, roadTex]);
+  // ---------- lamps ----------
+  const lamp = lampGeometries();
+  const poleRef = useRef<THREE.InstancedMesh>(null);
+  const headRef = useRef<THREE.InstancedMesh>(null);
+  const poolRef = useRef<THREE.InstancedMesh>(null);
+  const lampSet: Setter<CityData["lamps"][number]> = (l, o) => {
+    o.position.set(l.x, 0.18, l.z);
+    o.rotation.set(0, l.rotY, 0);
+  };
+  useInstanceLayout(poleRef, city.lamps, lampSet);
+  useInstanceLayout(headRef, city.lamps, lampSet);
+  useInstanceLayout(poolRef, city.lamps, (l, o) => {
+    o.position.set(l.x + Math.sin(l.rotY) * 2.4, 0.03, l.z + Math.cos(l.rotY) * 2.4);
+    o.rotation.set(-Math.PI / 2, 0, 0);
+    o.scale.set(13, 13, 1);
+  });
+  const glowTex = useMemo(() => makeGlowTexture("rgba(255,214,160,0.9)"), []);
+
+  // ---------- roof clutter ----------
+  const hvacRef = useRef<THREE.InstancedMesh>(null);
+  const tankRef = useRef<THREE.InstancedMesh>(null);
+  const antRef = useRef<THREE.InstancedMesh>(null);
+  const tipRef = useRef<THREE.InstancedMesh>(null);
+  useInstanceLayout(
+    hvacRef,
+    city.hvac,
+    (p, o) => {
+      o.position.set(p.x, p.y + p.h / 2, p.z);
+      o.scale.set(p.w, p.h, p.d);
+    },
+    (p, c) => {
+      const k = ((p.x * 13.1 + p.z * 7.7) % 1 + 1) % 1;
+      c.setRGB(0.55 + k * 0.2, 0.56 + k * 0.2, 0.57 + k * 0.2);
+    }
+  );
+  useInstanceLayout(tankRef, city.tanks, (p, o) => {
+    o.position.set(p.x, p.y + p.h / 2 + 0.6, p.z);
+    o.scale.set(p.w, p.h, p.d);
+  });
+  useInstanceLayout(antRef, city.antennas, (p, o) => {
+    o.position.set(p.x, p.y + p.h / 2, p.z);
+    o.scale.set(1, p.h, 1);
+  });
+  useInstanceLayout(tipRef, city.antennas, (p, o) => {
+    o.position.set(p.x, p.y + p.h + 0.2, p.z);
+  });
+
+  const n = (len: number) => Math.max(1, len);
+  const lampOn = night > 0.5;
 
   return (
     <group>
-      <color attach="background" args={["#070714"]} />
-      <fog attach="fog" args={["#070714", 150, 700]} />
-      <Stars radius={600} depth={50} count={3000} factor={4} fade />
-
-      <ambientLight intensity={0.5} />
-      <hemisphereLight args={["#4455aa", "#221133", 0.8]} />
-      <directionalLight position={[200, 300, 100]} intensity={0.5} color="#8899ff" />
-
-      {/* ground */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.05, 0]}>
-        <planeGeometry args={[city.size + 500, city.size + 500]} />
-        <meshStandardMaterial color="#0b0b14" roughness={1} />
+      {/* ground (asphalt everywhere; sidewalks sit on top) */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow material={groundMat}>
+        <planeGeometry args={[city.size + 12000, city.size + 12000]} />
       </mesh>
 
-      {roadSegments}
+      {/* outskirts: paved ground around the street grid so the skyline doesn't stand in a parking lot */}
+      {outskirts.map((o, i) => (
+        <mesh key={i} rotation={[-Math.PI / 2, 0, 0]} position={[o.x, 0.012, o.z]} material={outskirtMat} receiveShadow>
+          <planeGeometry args={[o.w, o.d]} />
+        </mesh>
+      ))}
+
+      <instancedMesh ref={markRef} args={[undefined, undefined, n(segments.length)]} material={markMat} receiveShadow>
+        <planeGeometry args={[city.blockSize, city.roadWidth]} />
+      </instancedMesh>
+
+      {/* sidewalks: curb slab + paving top */}
+      <instancedMesh ref={curbRef} args={[undefined, undefined, n(city.blockCenters.length)]} receiveShadow>
+        <boxGeometry args={[1, 1, 1]} />
+        <meshStandardMaterial color="#a3a19b" roughness={0.9} />
+      </instancedMesh>
+      <instancedMesh ref={paveRef} args={[undefined, undefined, n(city.blockCenters.length)]} material={paveMat} receiveShadow>
+        <planeGeometry args={[1, 1]} />
+      </instancedMesh>
+      <instancedMesh ref={parkRef} args={[undefined, undefined, n(city.parks.length)]} material={grassMat} receiveShadow>
+        <planeGeometry args={[1, 1]} />
+      </instancedMesh>
 
       {/* buildings */}
       <instancedMesh
-        ref={buildingsRef}
-        args={[undefined, undefined, city.buildings.length]}
-        frustumCulled={false}
-      >
+        ref={buildingRef}
+        args={[buildingGeo, facade.material, volumes.length]}
+        castShadow
+        receiveShadow
+      />
+
+      {/* roof clutter */}
+      <instancedMesh ref={hvacRef} args={[undefined, undefined, n(city.hvac.length)]} castShadow receiveShadow>
         <boxGeometry args={[1, 1, 1]} />
-        <meshStandardMaterial
-          emissiveMap={facadeTex}
-          emissive="#ffffff"
-          emissiveIntensity={0.9}
-          roughness={0.8}
-        />
+        <meshStandardMaterial color="#ffffff" roughness={0.55} metalness={0.4} />
+      </instancedMesh>
+      <instancedMesh ref={tankRef} args={[undefined, undefined, n(city.tanks.length)]} castShadow>
+        <cylinderGeometry args={[1, 1, 1, 14]} />
+        <meshStandardMaterial color="#6b5a48" roughness={0.85} />
+      </instancedMesh>
+      <instancedMesh ref={antRef} args={[undefined, undefined, n(city.antennas.length)]} castShadow>
+        <cylinderGeometry args={[0.09, 0.16, 1, 6]} />
+        <meshStandardMaterial color="#7a7c80" roughness={0.4} metalness={0.8} />
+      </instancedMesh>
+      <instancedMesh ref={tipRef} args={[undefined, undefined, n(city.antennas.length)]}>
+        <sphereGeometry args={[0.3, 8, 8]} />
+        <meshStandardMaterial color="#ff3b30" emissive="#ff2a1f" emissiveIntensity={1.5 + night * 6} />
+      </instancedMesh>
+
+      {/* trees */}
+      <instancedMesh ref={trunkRef} args={[tree.trunk, undefined, n(city.trees.length)]} castShadow>
+        <meshStandardMaterial color="#4a3a2c" roughness={0.95} />
+      </instancedMesh>
+      <instancedMesh ref={crownRef} args={[tree.crown, undefined, n(city.trees.length)]} castShadow receiveShadow>
+        <meshStandardMaterial color="#ffffff" roughness={0.85} />
       </instancedMesh>
 
       {/* street lamps */}
-      <instancedMesh
-        ref={lampRef}
-        args={[undefined, undefined, lampPositions.length]}
-        frustumCulled={false}
-      >
-        <sphereGeometry args={[1, 8, 8]} />
+      <instancedMesh ref={poleRef} args={[lamp.pole, undefined, n(city.lamps.length)]} castShadow>
+        <meshStandardMaterial color="#3b3e42" roughness={0.45} metalness={0.7} />
+      </instancedMesh>
+      <instancedMesh ref={headRef} args={[lamp.head, undefined, n(city.lamps.length)]}>
         <meshStandardMaterial
-          color="#ffd28a"
-          emissive="#ffd28a"
-          emissiveIntensity={3}
+          color={lampOn ? "#fff1d6" : "#d9d9d4"}
+          emissive="#ffd9a0"
+          emissiveIntensity={lampOn ? 9 * night : 0}
+          toneMapped={!lampOn}
         />
       </instancedMesh>
-      <instancedMesh
-        ref={poleRef}
-        args={[undefined, undefined, lampPositions.length]}
-        frustumCulled={false}
-      >
-        <cylinderGeometry args={[1, 1, 1, 5]} />
-        <meshStandardMaterial color="#11121a" />
-      </instancedMesh>
-
-      {/* neon accents */}
-      <instancedMesh
-        ref={neonRef}
-        args={[undefined, undefined, neonAccents.length]}
-        frustumCulled={false}
-      >
-        <boxGeometry args={[1, 1, 1]} />
-        <meshStandardMaterial emissiveIntensity={2.4} color="#ffffff" />
+      <instancedMesh ref={poolRef} args={[undefined, undefined, n(city.lamps.length)]} visible={lampOn}>
+        <planeGeometry args={[1, 1]} />
+        <meshBasicMaterial
+          map={glowTex}
+          transparent
+          opacity={0.32 * night}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+        />
       </instancedMesh>
     </group>
   );

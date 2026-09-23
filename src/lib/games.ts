@@ -5,65 +5,82 @@ export interface GameInfo {
   title: string;
   subtitle: string;
   description: string;
-  controls: string[];
+  goal: string;
+  controls: { keys: string[]; label: string }[];
   accent: string;
+  /** soft tint used on the light UI (card glow, badges) */
+  tint: string;
 }
 
 export const GAMES: GameInfo[] = [
   {
     slug: "spiderman",
     title: "Ağ Sallan",
-    subtitle: "Şehirde ağ atarak süzül",
+    subtitle: "Gökdelenlerin arasında ağ atarak sallan",
     description:
-      "Neon gökdelenlerin arasında ağ at, sark, bırak ve tekrar yakala. Saygımdan çalarken şehir senin oyun alanın.",
+      "Gökdelenlerin arasında ağ at, sark, bırak ve tekrar yakala. Şehre dağılmış ışık halkalarını topla, hızını koru.",
+    goal: "Sokakların üstündeki halkalardan geç. Yere değmeden ne kadar uzun sallanırsan kombo o kadar büyür.",
     controls: [
-      "Fare sol tık (basılı): ağ at ve sallan",
-      "Bırak: uç",
-      "WASD: yerde koş",
-      "Space: zıpla",
+      { keys: ["Sol Tık", "Space"], label: "basılı: ağ at ve sallan" },
+      { keys: ["Bırak"], label: "ağı kes, uç" },
+      { keys: ["W", "A", "S", "D"], label: "yerde koş / havada yönlen" },
+      { keys: ["Shift"], label: "havada dalış (hız)" },
+      { keys: ["R"], label: "başa dön" },
     ],
-    accent: "#e23636",
+    accent: "#e11d48",
+    tint: "#ffe4e6",
   },
   {
     slug: "drift",
     title: "Drift",
-    subtitle: "Gece şehrinde drift yap",
+    subtitle: "Gece meydanında lastik yak",
     description:
-      "El frenine asıl, aracı yatır, neon ışıkların altında lastikleri yak. Puanların en yüksek drift zincirine göre hesaplanır.",
+      "El frenine asıl, aracı yatır, neon meydanda lastikleri yak. Drift zinciri uzadıkça çarpan büyür; çarparsan zincir sıfırlanır.",
+    goal: "Drift zincirini uzat, halkalardan geçip bonus topla. Duvara sürtünürsen zincir sıfırlanır.",
     controls: [
-      "W/S: gaz/fren",
-      "A/D: direksiyon",
-      "Space: el freni (drift)",
-      "C: kamera",
+      { keys: ["W", "S"], label: "gaz / fren-geri" },
+      { keys: ["A", "D"], label: "direksiyon" },
+      { keys: ["Space"], label: "el freni (drift)" },
+      { keys: ["C"], label: "kamera" },
+      { keys: ["R"], label: "sıfırla" },
     ],
-    accent: "#a855f7",
+    accent: "#9333ea",
+    tint: "#f3e8ff",
   },
   {
     slug: "f16",
     title: "F-16",
-    subtitle: "Şehrin üzerinde alçak uçuş",
+    subtitle: "Gün batımında çatıların üstünden alçak uçuş",
     description:
-      "Binaların arasından süzül, köprü altından geç, afterburner'ı aç. Dikkat: gökdelenler affetmez.",
+      "Binaların arasından süzül, afterburner'ı aç, takla at. Gökyüzündeki halkaların içinden geçerek puan topla. Gökdelenler affetmez.",
+    goal: "Halkalardan geç, alçaktan uçtukça puan katlanır. Binaya çarparsan baştan.",
     controls: [
-      "Fare veya ok tuşları: pitch/roll",
-      "A/D: yaw",
-      "W/S: gaz",
-      "C: kamera",
+      { keys: ["Fare"], label: "pitch / roll (canvas'a tıkla)" },
+      { keys: ["↑", "↓", "←", "→"], label: "pitch / roll (klavye)" },
+      { keys: ["A", "D"], label: "yaw" },
+      { keys: ["W", "S"], label: "gaz" },
+      { keys: ["Shift"], label: "afterburner" },
+      { keys: ["Space"], label: "takla" },
+      { keys: ["C"], label: "kokpit" },
     ],
-    accent: "#38bdf8",
+    accent: "#0284c7",
+    tint: "#e0f2fe",
   },
   {
     slug: "traffic",
     title: "Makas",
-    subtitle: "Trafikte first-person makas at",
+    subtitle: "Gece otobanında direksiyon başında makas",
     description:
-      "Gece trafiğinde first-person şerit değiştir, arabaların arasından makas at. Ne kadar yakın, o kadar puan.",
+      "Gece otobanında şerit değiştir, arabaların arasından makas at. Yakın geçiş bonusu, kombo çarpanı; çarparsan hız ve kombo gider.",
+    goal: "Arabaların dibinden geç, komboyu kaybetmeden mesafe yap.",
     controls: [
-      "A/D veya ←/→: şerit değiştir",
-      "W/↑: gaz",
-      "S/↓: fren",
+      { keys: ["A", "D"], label: "şerit değiştir" },
+      { keys: ["W"], label: "gaz" },
+      { keys: ["S"], label: "fren" },
+      { keys: ["Shift"], label: "nitro" },
     ],
-    accent: "#f59e0b",
+    accent: "#d97706",
+    tint: "#fef3c7",
   },
 ];
 

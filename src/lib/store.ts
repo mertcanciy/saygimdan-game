@@ -33,3 +33,15 @@ export function useHydrated(): boolean {
     () => false
   );
 }
+
+interface MusicState {
+  /** set once the visitor has pressed play somewhere (browsers need a gesture) */
+  started: boolean;
+  start: () => void;
+}
+
+/** Global song state: the dock lives in the root layout so the song keeps playing across pages. */
+export const useMusicStore = create<MusicState>()((set) => ({
+  started: false,
+  start: () => set({ started: true }),
+}));
