@@ -51,10 +51,7 @@ const _smokeParts = Array.from({ length: SMOKE_N }, () => ({
   life: 0,
 }));
 const _smokeObj = new THREE.Object3D();
-const _smokeAlpha = new THREE.InstancedBufferAttribute(
-  new Float32Array(SMOKE_N),
-  1
-);
+const _smokeCol = new THREE.Color();
 
 function TireSmoke({
   emitRef,
@@ -62,41 +59,15 @@ function TireSmoke({
   emitRef: React.MutableRefObject<THREE.Vector3[]>;
 }) {
   const tex = useMemo(() => makeSmokeTexture(), []);
-  const geo = useMemo(() => {
-    const g = new THREE.PlaneGeometry(1, 1);
-    g.setAttribute("aAlpha", _smokeAlpha);
-    return g;
-  }, []);
   const mat = useMemo(() => {
+    // additive: fading color to black = invisible — can never render dark
     const m = new THREE.MeshBasicMaterial({
       map: tex,
       transparent: true,
       depthWrite: false,
-      blending: THREE.NormalBlending,
-      color: new THREE.Color(0.82, 0.84, 0.9),
+      blending: THREE.AdditiveBlending,
+      color: new THREE.Color(0.85, 0.85, 0.9),
     });
-    // real per-instance alpha so puffs stay light grey and never turn black
-    m.onBeforeCompile = (sh) => {
-      sh.vertexShader = sh.vertexShader
-        .replace(
-          "#include <common>",
-          "#include <common>\nattribute float aAlpha; varying float vSmokeAlpha;"
-        )
-        .replace(
-          "#include <begin_vertex>",
-          "#include <begin_vertex>\nvSmokeAlpha = aAlpha;"
-        );
-      sh.fragmentShader = sh.fragmentShader
-        .replace(
-          "#include <common>",
-          "#include <common>\nvarying float vSmokeAlpha;"
-        )
-        .replace(
-          "vec4 diffuseColor = vec4( diffuse, opacity );",
-          "vec4 diffuseColor = vec4( diffuse, opacity * vSmokeAlpha );"
-        );
-    };
-    m.customProgramCacheKey = () => "tire-smoke-alpha";
     return m;
   }, [tex]);
   const mesh = useRef<THREE.InstancedMesh>(null);
@@ -123,7 +94,7 @@ function TireSmoke({
     }
     if (emitAcc.current > 0.1) emitAcc.current = 0;
 
-    const alphaArr = _smokeAlpha.array as Float32Array;
+    const col = _smokeCol;
     for (let i = 0; i < SMOKE_N; i++) {
       const part = parts[i];
       if (part.life <= 0) {
@@ -131,30 +102,34 @@ function TireSmoke({
         obj.scale.setScalar(0.001);
         obj.updateMatrix();
         im.setMatrixAt(i, obj.matrix);
-        alphaArr[i] = 0;
+        col.setScalar(0);
+        im.setColorAt(i, col);
         continue;
       }
       part.life -= dt;
       part.pos.y += 1.6 * dt;
-      const t = 1 - part.life / 1.2;
+      const t = Math.min(1, Math.max(0, 1 - part.life / 1.2));
       obj.position.copy(part.pos);
       obj.quaternion.copy(camera.quaternion);
       obj.scale.setScalar(0.7 + t * 1.8); // max ~2.5 m
       obj.updateMatrix();
       im.setMatrixAt(i, obj.matrix);
-      alphaArr[i] = 0.5 * (1 - t);
+      col.setScalar(0.55 * (1 - t));
+      im.setColorAt(i, col);
     }
     im.instanceMatrix.needsUpdate = true;
-    _smokeAlpha.needsUpdate = true;
+    if (im.instanceColor) im.instanceColor.needsUpdate = true;
   });
 
   return (
     <instancedMesh
       ref={mesh}
-      args={[geo, mat, SMOKE_N]}
+      args={[undefined, mat, SMOKE_N]}
       frustumCulled={false}
       renderOrder={5}
-    />
+    >
+      <planeGeometry args={[1, 1]} />
+    </instancedMesh>
   );
 }
 
