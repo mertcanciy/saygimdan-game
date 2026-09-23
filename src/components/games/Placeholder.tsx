@@ -2,7 +2,6 @@
 
 import { useRef } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { Html } from "@react-three/drei";
 import type { Mesh } from "three";
 
 function RotatingBox({ color, active }: { color: string; active: boolean }) {
@@ -31,19 +30,24 @@ export default function Placeholder({
   color: string;
 }) {
   return (
-    <Canvas
-      className="absolute inset-0"
-      camera={{ position: [0, 0, 5], fov: 55 }}
-      style={{ background: "radial-gradient(circle at 50% 40%, #141428, #05060f)" }}
-    >
-      <ambientLight intensity={0.6} />
-      <pointLight position={[5, 5, 5]} intensity={40} />
-      <RotatingBox color={color} active={started} />
-      <Html center>
-        <span className="mt-40 block text-white/70 text-sm tracking-widest select-none">
+    <div className="absolute inset-0">
+      <Canvas
+        dpr={[1, 1.5]}
+        gl={{ antialias: true, powerPreference: "high-performance" }}
+        camera={{ fov: 70, near: 0.1, far: 1500, position: [0, 0, 5] }}
+        style={{
+          background: "radial-gradient(circle at 50% 40%, #141428, #05060f)",
+        }}
+      >
+        <ambientLight intensity={0.6} />
+        <pointLight position={[5, 5, 5]} intensity={40} />
+        <RotatingBox color={color} active={started} />
+      </Canvas>
+      <div className="absolute inset-x-0 top-2/3 flex justify-center pointer-events-none">
+        <span className="text-white/70 text-sm tracking-widest select-none">
           {title} — yakında
         </span>
-      </Html>
-    </Canvas>
+      </div>
+    </div>
   );
 }
