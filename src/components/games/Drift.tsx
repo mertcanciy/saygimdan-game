@@ -114,7 +114,7 @@ function TireSmoke({
       obj.scale.setScalar(0.7 + t * 1.8); // max ~2.5 m
       obj.updateMatrix();
       im.setMatrixAt(i, obj.matrix);
-      col.setScalar(0.55 * (1 - t));
+      col.setScalar(0.22 * (1 - t));
       im.setColorAt(i, col);
     }
     im.instanceMatrix.needsUpdate = true;
