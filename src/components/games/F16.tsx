@@ -39,6 +39,43 @@ const _dq = new THREE.Quaternion();
 const _qInv = new THREE.Quaternion();
 const WORLD_UP = new THREE.Vector3(0, 1, 0);
 const Q_FLIP = new THREE.Quaternion().setFromAxisAngle(WORLD_UP, Math.PI);
+const _aimAxis = new THREE.Vector3();
+const _local = new THREE.Vector3();
+const _camM = new THREE.Matrix4();
+
+/*
+ * Mouse aim (War Thunder style): the mouse moves an aim direction in the world,
+ * the camera looks along it and a small autopilot flies the jet towards it.
+ * Tunables live here so the feel can be calibrated in one place.
+ */
+const AIM = {
+  /** radians of aim per pixel of mouse movement */
+  sensitivity: 0.0016,
+  /** the aim can't wander further than this from the nose (rad) */
+  maxOffNose: THREE.MathUtils.degToRad(70),
+  /** max climb / dive angle of the aim (rad) */
+  maxElevation: THREE.MathUtils.degToRad(80),
+  /** roll: gain on the angle to put the target above the canopy */
+  rollGain: 1.15,
+  /** roll damping on the measured roll rate */
+  rollDamp: 0.22,
+  /** pitch: gain on the pitch error */
+  pitchGain: 2.6,
+  pitchDamp: 0.35,
+  /** small errors are handled with rudder + wings level instead of banking */
+  bankStart: THREE.MathUtils.degToRad(2.5),
+  bankFull: THREE.MathUtils.degToRad(14),
+  yawGain: 3.0,
+};
+
+/** Put a DOM reticle where `dir` (seen from the camera) lands on screen. */
+function placeReticle(el: HTMLDivElement | null, cam: THREE.Camera, dir: THREE.Vector3, on: boolean) {
+  if (!el) return;
+  _p.copy(cam.position).addScaledVector(dir, 600).project(cam);
+  const vis = on && _p.z < 1;
+  el.style.opacity = vis ? "1" : "0";
+  if (vis) el.style.transform = `translate(${((_p.x + 1) / 2) * 100}vw, ${((1 - _p.y) / 2) * 100}vh)`;
+}
 
 /* jet-local sample points used for collision (x, y, z) */
 const PROBES: [number, number, number, number][] = [
@@ -140,7 +177,15 @@ function makeRingRoute(city: ReturnType<typeof generateCity>) {
 }
 
 /* ---------------------------------------------------------------- scene */
-function F16Scene({ started, onHud }: { started: boolean; onHud: (h: Hud) => void }) {
+function F16Scene({
+  started,
+  onHud,
+  reticle,
+}: {
+  started: boolean;
+  onHud: (h: Hud) => void;
+  reticle: React.RefObject<{ aim: HTMLDivElement | null; nose: HTMLDivElement | null }>;
+}) {
   const photo = useMemo(() => readPhoto(), []);
   const city = useMemo(
     () =>
@@ -159,7 +204,11 @@ function F16Scene({ started, onHud }: { started: boolean; onHud: (h: Hud) => voi
 
   const keys = useKeys();
   const edge = useMemo(() => makeEdge(), []);
-  const { stick } = usePointerLook(0.0016, 1.4, false);
+  const { yaw: lookYaw, pitch: lookPitch, locked } = usePointerLook(AIM.sensitivity, 1e6, true);
+  const lockedRef = useRef(false);
+  useEffect(() => {
+    lockedRef.current = locked;
+  }, [locked]);
 
   const jet = useRef<THREE.Group>(null);
   const controls = useRef(makeJetControls());
@@ -216,6 +265,15 @@ function F16Scene({ started, onHud }: { started: boolean; onHud: (h: Hud) => voi
     yawIn: 0,
     photoT: 0,
     photoBoomed: false,
+    /** world-space direction the player wants to fly */
+    aim: new THREE.Vector3(0, 0, 1).applyQuaternion(startQ),
+    lastLookYaw: 0,
+    lastLookPitch: 0,
+    lastRollErr: 0,
+    lastPitchErr: 0,
+    keyboardFlying: false,
+    locked: false,
+    yawAuto: 0,
   });
 
   const banner = (text: string) => {
@@ -244,6 +302,7 @@ function F16Scene({ started, onHud }: { started: boolean; onHud: (h: Hud) => voi
     s.combo = 0;
     s.camInit = false;
     s.barrelT = 0;
+    s.aim.set(0, 0, 1).applyQuaternion(startQ);
     clearTrails();
   };
 
@@ -258,6 +317,12 @@ function F16Scene({ started, onHud }: { started: boolean; onHud: (h: Hud) => voi
     _v.copy(_fwd).multiplyScalar(s.speed);
     boom.current?.trigger(s.pos, _v);
   };
+
+  // dev-only handle for headless tests
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") return;
+    (window as unknown as { __f16?: unknown }).__f16 = st.current;
+  }, []);
 
   // photo mode: place the jet (window.__f16photo lets a screenshot script re-pose it)
   const photoRef = useRef(photo);
@@ -308,6 +373,39 @@ function F16Scene({ started, onHud }: { started: boolean; onHud: (h: Hud) => voi
     if (s.crashed) {
       s.crashT += dt;
       if (s.crashT > CRASH_RESET && !photo) reset();
+    }
+
+    // ---- mouse aim: turn the aim direction by this frame's mouse movement ----
+    {
+      const dYaw = lookYaw.current - s.lastLookYaw;
+      const dPitch = lookPitch.current - s.lastLookPitch;
+      s.lastLookYaw = lookYaw.current;
+      s.lastLookPitch = lookPitch.current;
+      s.locked = lockedRef.current;
+      _fwd.set(0, 0, 1).applyQuaternion(s.q);
+      if (s.locked && !s.crashed && !s.keyboardFlying) {
+        s.aim.applyAxisAngle(WORLD_UP, dYaw);
+        _aimAxis.crossVectors(s.aim, WORLD_UP);
+        if (_aimAxis.lengthSq() > 1e-6) s.aim.applyAxisAngle(_aimAxis.normalize(), dPitch);
+        // keep the aim within reach of the nose and away from straight up/down
+        const off = s.aim.angleTo(_fwd);
+        if (off > AIM.maxOffNose) {
+          _v.copy(s.aim);
+          s.aim.copy(_fwd).lerp(_v, AIM.maxOffNose / off).normalize();
+        }
+        const el = Math.asin(THREE.MathUtils.clamp(s.aim.y, -1, 1));
+        if (Math.abs(el) > AIM.maxElevation) {
+          const hz = Math.hypot(s.aim.x, s.aim.z) || 1;
+          const c = Math.cos(AIM.maxElevation) / hz;
+          s.aim.set(s.aim.x * c, Math.sign(el) * Math.sin(AIM.maxElevation), s.aim.z * c);
+        }
+      } else {
+        // no mouse control (not captured / keyboard / crashed): aim follows the
+        // nose, levelled out, so the jet settles into straight and level flight
+        _v.set(_fwd.x, s.keyboardFlying ? _fwd.y : 0, _fwd.z);
+        if (_v.lengthSq() < 1e-4) _v.copy(_fwd);
+        s.aim.lerp(_v.normalize(), s.keyboardFlying ? 1 : Math.min(1, dt * 1.5)).normalize();
+      }
     }
 
     // ---- broad phase: buildings near the jet (once per frame) ----
@@ -423,11 +521,13 @@ function F16Scene({ started, onHud }: { started: boolean; onHud: (h: Hud) => voi
       cam.position.x += (Math.random() - 0.5) * sh;
       cam.position.y += (Math.random() - 0.5) * sh;
     } else {
-      // orientation lags the jet -> the jet swings in frame during manoeuvres
+      // the camera looks along the aim; the jet chases it through the frame
+      _camM.lookAt(s.aim, _v.set(0, 0, 0), WORLD_UP);
+      _dq.setFromRotationMatrix(_camM);
       if (!s.camInit) {
-        s.camQ.copy(s.q);
+        s.camQ.copy(_dq);
       } else {
-        s.camQ.slerp(s.q, Math.min(1, dt * 4.5));
+        s.camQ.slerp(_dq, Math.min(1, dt * 7));
       }
       _v.set(0, 3.9, -17.5 - s.ab * 2.5).applyQuaternion(s.camQ);
       _camPos.copy(s.pos).add(_v);
@@ -443,13 +543,23 @@ function F16Scene({ started, onHud }: { started: boolean; onHud: (h: Hud) => voi
         cam.position.lerp(_camPos, Math.min(1, dt * 12));
       }
       // partial roll follow
-      _v.set(0, 1, 0).applyQuaternion(s.camQ);
-      _v2.copy(WORLD_UP).lerp(_v, 0.72).normalize();
+      // a little of the jet's bank leaks into the horizon for feel
+      _v2.copy(WORLD_UP).lerp(_up, 0.22).normalize();
       cam.up.copy(_v2);
-      _look.copy(s.pos).addScaledVector(_fwd, 16).addScaledVector(_up, 1.6);
+      _v.set(0, 0, 1).applyQuaternion(s.camQ);
+      _look.copy(s.pos).addScaledVector(_v, 22).addScaledVector(WORLD_UP, 1.2);
       cam.lookAt(_look);
     }
     for (let i = 0; i < ribbonList.length; i++) ribbonList[i].update(dt, cam.position);
+
+    // ---- screen reticles: where the mouse aims (circle) and where the nose points (cross) ----
+    {
+      const r = reticle.current;
+      const showAim = started && !photo && !s.crashed && s.locked && !s.keyboardFlying;
+      cam.updateMatrixWorld();
+      placeReticle(r?.aim ?? null, cam, s.aim, showAim);
+      placeReticle(r?.nose ?? null, cam, _fwd, started && !photo && !s.crashed && !s.cockpit);
+    }
 
     const baseFov = s.cockpit && !s.crashed ? 68 : 60;
     const targetFov = baseFov + Math.min(s.speed, 220) * 0.045 + s.ab * 9 + s.prox * 5;
@@ -523,21 +633,48 @@ function F16Scene({ started, onHud }: { started: boolean; onHud: (h: Hud) => voi
       if (k.has("KeyS")) stt.throttle = Math.max(0, stt.throttle - 0.55 * h);
       const abNow = (k.has("ShiftLeft") || k.has("ShiftRight")) && stt.throttle > 0.5;
 
-      // virtual stick (mouse offset from centre) + keyboard
-      let sx = stick.current.x;
-      let sy = stick.current.y;
-      const dz = 0.07;
-      sx = Math.abs(sx) < dz ? 0 : (sx - Math.sign(sx) * dz) / (1 - dz);
-      sy = Math.abs(sy) < dz ? 0 : (sy - Math.sign(sy) * dz) / (1 - dz);
+      // stick: arrow keys fly directly; otherwise the mouse-aim autopilot does
+      let sx = 0;
+      let sy = 0;
       if (k.has("ArrowLeft")) sx -= 1;
       if (k.has("ArrowRight")) sx += 1;
       if (k.has("ArrowUp")) sy += 1;
       if (k.has("ArrowDown")) sy -= 1;
+      stt.keyboardFlying = sx !== 0 || sy !== 0;
+      if (!stt.keyboardFlying) {
+        _fwd.set(0, 0, 1).applyQuaternion(stt.q);
+        _up.set(0, 1, 0).applyQuaternion(stt.q);
+        _right.set(-1, 0, 0).applyQuaternion(stt.q);
+        _qInv.copy(stt.q).invert();
+        _local.copy(stt.aim).applyQuaternion(_qInv); // +z ahead, +y canopy, -x right
+        const off = Math.acos(THREE.MathUtils.clamp(_local.z, -1, 1));
+        const pitchErr = Math.atan2(_local.y, Math.max(0.05, _local.z));
+        // roll so the target sits "above the canopy"; if it's mostly below, push instead
+        let rollErr = Math.atan2(-_local.x, _local.y);
+        if (_local.y < 0 && Math.abs(_local.x) < -_local.y * 0.6) rollErr = Math.atan2(-_local.x, -_local.y);
+        const bank = Math.atan2(-_right.y, _up.y);
+        const w = THREE.MathUtils.smoothstep(off, AIM.bankStart, AIM.bankFull);
+        // near the target: wings level + rudder does the fine work
+        const levelErr = -bank;
+        const rollTarget = w * rollErr + (1 - w) * levelErr;
+        const rollRate = (rollTarget - stt.lastRollErr) / h;
+        stt.lastRollErr = rollTarget;
+        const pitchRate = (pitchErr - stt.lastPitchErr) / h;
+        stt.lastPitchErr = pitchErr;
+        sx = AIM.rollGain * rollTarget + AIM.rollDamp * THREE.MathUtils.clamp(rollRate, -4, 4) * 0.1;
+        sy = AIM.pitchGain * pitchErr + AIM.pitchDamp * THREE.MathUtils.clamp(pitchRate, -4, 4) * 0.1;
+        // don't pull hard while still rolling towards a big lateral target
+        sy *= 1 - 0.6 * w * THREE.MathUtils.smoothstep(Math.abs(rollErr), 0.5, 1.4);
+        const yawErr = Math.atan2(-_local.x, Math.max(0.05, _local.z));
+        stt.yawAuto = THREE.MathUtils.clamp(yawErr * AIM.yawGain * (1 - w), -1, 1);
+      } else {
+        stt.yawAuto = 0;
+      }
       sx = THREE.MathUtils.clamp(sx, -1, 1);
       sy = THREE.MathUtils.clamp(sy, -1, 1);
       stt.stickX += (sx - stt.stickX) * Math.min(1, 9 * h);
       stt.stickY += (sy - stt.stickY) * Math.min(1, 9 * h);
-      const yawIn = (k.has("KeyD") ? 1 : 0) - (k.has("KeyA") ? 1 : 0);
+      const yawIn = THREE.MathUtils.clamp((k.has("KeyD") ? 1 : 0) - (k.has("KeyA") ? 1 : 0) + stt.yawAuto, -1, 1);
       stt.yawIn += (yawIn - stt.yawIn) * Math.min(1, 8 * h);
 
       const authority = THREE.MathUtils.clamp(stt.speed / 70, 0.3, 1.1);
@@ -553,7 +690,7 @@ function F16Scene({ started, onHud }: { started: boolean; onHud: (h: Hud) => voi
         stt.barrelT -= h;
         rollRight = stt.barrelDir * ((Math.PI * 2) / 1.0);
         pitchUp += 0.35;
-      } else if (Math.abs(stt.stickX) < 0.05 && _up.y > 0) {
+      } else if (stt.keyboardFlying && Math.abs(stt.stickX) < 0.05 && _up.y > 0) {
         // hands off: gently roll wings level
         rollRight += _right.y * 1.7;
       }
@@ -690,10 +827,39 @@ export default function F16({ started }: { started: boolean }) {
     g: 1,
   });
   const photoMode = useMemo(() => readPhoto() !== null, []);
+  const reticle = useRef<{ aim: HTMLDivElement | null; nose: HTMLDivElement | null }>({ aim: null, nose: null });
+  const [locked, setLocked] = useState(false);
+  useEffect(() => {
+    const on = () => setLocked(!!document.pointerLockElement);
+    document.addEventListener("pointerlockchange", on);
+    return () => document.removeEventListener("pointerlockchange", on);
+  }, []);
   return (
     <div className="absolute inset-0">
-      <Canvas shadows dpr={[1, 1.5]} gl={CANVAS_GL} camera={{ fov: 62, near: 0.2, far: 4500 }}>
-        <F16Scene started={started} onHud={setHud} />
+      {/* reticles are positioned every frame from the scene (see F16Scene) */}
+      <div className="pointer-events-none absolute inset-0 z-10 overflow-hidden">
+        <div
+          ref={(el) => {
+            reticle.current.aim = el;
+          }}
+          className="absolute left-0 top-0 opacity-0"
+        >
+          <div className="-translate-x-1/2 -translate-y-1/2 size-9 rounded-full border-2 border-white/90 shadow-[0_0_0_1px_rgba(0,0,0,0.25)]" />
+        </div>
+        <div
+          ref={(el) => {
+            reticle.current.nose = el;
+          }}
+          className="absolute left-0 top-0 opacity-0"
+        >
+          <div className="relative -translate-x-1/2 -translate-y-1/2 size-5">
+            <span className="absolute left-1/2 top-0 h-full w-[2px] -translate-x-1/2 bg-[#ffd400] shadow-[0_0_0_1px_rgba(0,0,0,0.3)]" />
+            <span className="absolute top-1/2 left-0 w-full h-[2px] -translate-y-1/2 bg-[#ffd400] shadow-[0_0_0_1px_rgba(0,0,0,0.3)]" />
+          </div>
+        </div>
+      </div>
+      <Canvas shadows="percentage" dpr={[1, 1.5]} gl={CANVAS_GL} camera={{ fov: 62, near: 0.2, far: 4500 }}>
+        <F16Scene started={started} onHud={setHud} reticle={reticle} />
       </Canvas>
       <div className="absolute top-4 right-4 flex flex-col gap-2 items-end">
         <HudStat label="Skor" value={`${hud.score}`} accent={ACCENT} sub={hud.combo > 1 ? `×${hud.combo} kombo` : undefined} />
@@ -717,8 +883,8 @@ export default function F16({ started }: { started: boolean }) {
           tone="danger"
         />
       )}
-      {started && !photoMode && !hud.crashed && hud.score === 0 && hud.rings === 0 && (
-        <HudCenter text="Fareyi merkezden uzaklaştır: yatır/burun kaldır · W/S gaz · Shift afterburner · Space takla" />
+      {started && !photoMode && !hud.crashed && !locked && (
+        <HudCenter text="Ekrana tıkla, fareyle nişan al: uçak beyaz halkaya döner. Esc ile bırak." />
       )}
       {started && !photoMode && !hud.crashed && <HudHint text="C: kokpit · halkalar sokak aralarında · binalara dikkat" />}
     </div>

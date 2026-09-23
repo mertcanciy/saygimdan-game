@@ -9,6 +9,7 @@ import { generateCity, aabbCollide, mulberry32, randomRoadPoint, type Building, 
 import { WorldAtmosphere, WorldEffects, CANVAS_GL, PRESETS } from "./shared/World";
 import { pavingTexture } from "./shared/streetAssets";
 import { useKeys, makeEdge } from "./shared/useKeys";
+import { stepDrift, type DriftBody } from "./cars/driftPhysics";
 import Rings, { type RingData, ringHit } from "./shared/Rings";
 import Particles, { type ParticleHandle } from "./shared/Particles";
 import TireSmoke, { type SmokeHandle } from "./cars/TireSmoke";
@@ -21,8 +22,8 @@ import { getGame } from "@/lib/games";
 
 const ACCENT = getGame("drift")!.accent;
 const SUB = 1 / 120;
-const MAX_VF = 48; // m/s (~170 km/h)
-const WHEELBASE = 2.66;
+const _body: DriftBody = { vF: 0, vR: 0, yawRate: 0, steer: 0, aLong: 0 };
+
 const RING_COUNT = 10;
 const WHEEL_R = 0.345;
 const PRESET = "night" as const;
@@ -396,6 +397,12 @@ function DriftScene({ started, onHud }: { started: boolean; onHud: (h: Hud) => v
     s.bannerT = 1.2;
   };
 
+  // dev-only handle for headless tests
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") return;
+    (window as unknown as { __drift?: unknown }).__drift = st.current;
+  }, []);
+
   useFrame(({ camera }, rawDt) => {
     const s = st.current;
     const cam = camera as THREE.PerspectiveCamera;
@@ -410,6 +417,8 @@ function DriftScene({ started, onHud }: { started: boolean; onHud: (h: Hud) => v
         s.vel.set(0, 0, 0);
         s.heading = 0;
         s.yawRate = 0;
+        _body.drift = 0;
+        _body.betaPrev = undefined;
         s.chain = 0;
       }
     }
@@ -429,7 +438,8 @@ function DriftScene({ started, onHud }: { started: boolean; onHud: (h: Hud) => v
     const vF = Math.sin(s.heading) * s.vel.x + Math.cos(s.heading) * s.vel.z;
     const vR = Math.cos(s.heading) * s.vel.x - Math.sin(s.heading) * s.vel.z;
     const slip = Math.atan2(Math.abs(vR), Math.abs(vF));
-    const drifting = slip > (14 * Math.PI) / 180 && speed > 7;
+    // a drift counts while moving forwards, sideways between 12 and 80 degrees
+    const drifting = slip > (12 * Math.PI) / 180 && slip < (80 * Math.PI) / 180 && vF > 5 && speed > 7;
     s.slip = slip;
     s.drifting = drifting;
     focus.current.copy(s.pos);
@@ -564,7 +574,8 @@ function DriftScene({ started, onHud }: { started: boolean; onHud: (h: Hud) => v
     if (drifting) {
       s.driftTime += dt;
       const mult = 1 + Math.min(3, Math.floor(s.driftTime / 1.5) * 0.5);
-      s.chain += speed * slip * dt * 12 * mult;
+      // angle reward saturates around 50 deg so clean, held drifts beat wild ones
+      s.chain += speed * Math.min(slip, 0.87) * dt * 12 * mult;
       s.bankTimer = 0;
       s.mult = mult;
     } else {
@@ -628,44 +639,19 @@ function DriftScene({ started, onHud }: { started: boolean; onHud: (h: Hud) => v
       const throttle = k.has("KeyW") || k.has("ArrowUp");
       const brake = k.has("KeyS") || k.has("ArrowDown");
 
-      // engine / brake / drag
-      if (throttle) {
-        const power = 24 * (1 - Math.max(0, vF) / (MAX_VF * 1.1));
-        vF += power * h;
-      } else if (brake) {
-        if (vF > 0.5) vF = Math.max(0, vF - 32 * h);
-        else vF = Math.max(-10, vF - 12 * h);
-      }
-      vF *= Math.exp(-0.18 * h);
-      if (handbrake) vF *= Math.exp(-1.2 * h);
-
-      // steering (rate-limited, speed-sensitive max angle)
+      // ---- tyre model (see cars/driftPhysics.ts) ----
       const steerIn = (k.has("KeyA") || k.has("ArrowLeft") ? 1 : 0) - (k.has("KeyD") || k.has("ArrowRight") ? 1 : 0);
-      const rate = steerIn !== 0 ? 5 : 8;
-      stt.steer += THREE.MathUtils.clamp(steerIn - stt.steer, -rate * h, rate * h);
-      const maxSteer = THREE.MathUtils.lerp(0.6, 0.3, THREE.MathUtils.clamp(Math.abs(vF) / 35, 0, 1));
-      const steerAngle = stt.steer * maxSteer;
-
-      // grip model with weight transfer: braking loads the nose (rear goes
-      // light and steps out), throttle mid-slide keeps the rear spinning
-      const slipNow = Math.atan2(Math.abs(vR), Math.abs(vF) + 0.5);
-      const driftingNow = handbrake || slipNow > (16 * Math.PI) / 180;
-      let latGrip = driftingNow ? (handbrake ? 1.8 : 2.6) : 9.5;
-      const load = THREE.MathUtils.clamp(-stt.aLong * 0.03, -0.25, 0.3); // + = weight to the front
-      latGrip *= 1 - load * 0.8;
-      if (driftingNow && throttle && !handbrake) latGrip *= 0.8;
-
-      const kin = (vF / WHEELBASE) * Math.tan(steerAngle);
-      const assist = driftingNow ? 1.55 : 1.0;
-      let targetYaw = kin * assist;
-      if (driftingNow) {
-        const slipSigned = Math.atan2(vR, Math.abs(vF) + 0.5);
-        targetYaw += slipSigned * 1.6 * Math.sign(vF || 1);
-      }
-      stt.yawRate += (targetYaw - stt.yawRate) * Math.min(1, 7 * h);
+      _body.vF = vF;
+      _body.vR = vR;
+      _body.yawRate = stt.yawRate;
+      _body.steer = stt.steer;
+      _body.aLong = stt.aLong;
+      stepDrift(_body, throttle, brake, handbrake, steerIn, h);
+      vF = _body.vF;
+      vR = _body.vR;
+      stt.yawRate = _body.yawRate;
+      stt.steer = _body.steer;
       stt.heading += stt.yawRate * h;
-
-      vR *= Math.exp(-latGrip * h);
 
       // accelerations for the suspension (smoothed)
       const aLong = (vF - stt.vFPrev) / h;
@@ -761,7 +747,7 @@ export default function Drift({ started }: { started: boolean }) {
 
   return (
     <div className="absolute inset-0">
-      <Canvas shadows dpr={[1, 1.5]} gl={CANVAS_GL} camera={{ fov: 62, near: 0.1, far: 3000, position: [0, 3, 0] }}>
+      <Canvas shadows="percentage" dpr={[1, 1.5]} gl={CANVAS_GL} camera={{ fov: 62, near: 0.1, far: 3000, position: [0, 3, 0] }}>
         <DriftScene started={started} onHud={setHud} />
       </Canvas>
       <div className="absolute top-4 right-4 flex flex-col gap-2 items-end">

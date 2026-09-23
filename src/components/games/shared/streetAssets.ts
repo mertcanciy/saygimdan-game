@@ -191,33 +191,47 @@ export function grassTexture(): THREE.CanvasTexture {
   });
 }
 
-/** Tree: tapered trunk + lumpy crown. Base at y=0, ~7 m tall. */
-export function treeGeometries(): { trunk: THREE.BufferGeometry; crown: THREE.BufferGeometry } {
+function crownGeometry(clusters: number, detail: number, minR: number, spreadR: number, seed: number): THREE.BufferGeometry {
+  const rand = mulberry32(seed);
+  const parts: THREE.BufferGeometry[] = [];
+  // leaf clusters scattered in a squashed ellipsoid, each noisily displaced so
+  // the silhouette reads as foliage rather than a few smooth balls
+  for (let i = 0; i < clusters; i++) {
+    const a = rand() * Math.PI * 2;
+    const u = rand() * 2 - 1;
+    const rr = 0.35 + 0.65 * Math.cbrt(rand());
+    const x = Math.cos(a) * Math.sqrt(1 - u * u) * 2.1 * rr;
+    const z = Math.sin(a) * Math.sqrt(1 - u * u) * 2.1 * rr;
+    const y = 4.9 + u * 1.7 * rr;
+    const g = mergeVertices(new THREE.IcosahedronGeometry(minR + rand() * spreadR, detail));
+    const p = g.attributes.position as THREE.BufferAttribute;
+    for (let k = 0; k < p.count; k++) {
+      const j = 0.7 + rand() * 0.6;
+      p.setXYZ(k, p.getX(k) * j, p.getY(k) * j * 0.8, p.getZ(k) * j);
+    }
+    g.translate(x, y, z);
+    parts.push(g);
+  }
+  const crown = mergeGeometries(parts)!;
+  crown.computeVertexNormals();
+  return crown;
+}
+
+/**
+ * Tree in two levels of detail. Base at y=0, ~7 m tall.
+ * `near`: ~30 leaf clusters + branches (~2.5k tris); `far`: 7 coarse clusters (~140 tris).
+ */
+export function treeGeometries(): {
+  trunk: THREE.BufferGeometry;
+  crown: THREE.BufferGeometry;
+  trunkFar: THREE.BufferGeometry;
+  crownFar: THREE.BufferGeometry;
+} {
   return memo("tree", () => {
+    const rand = mulberry32(5);
     const trunkCore = new THREE.CylinderGeometry(0.11, 0.19, 3.8, 7);
     trunkCore.translate(0, 1.9, 0);
-    const rand = mulberry32(5);
-    const parts: THREE.BufferGeometry[] = [];
     const branches: THREE.BufferGeometry[] = [];
-    // ~46 small leaf clusters in a squashed ellipsoid, each noisily displaced
-    // so the silhouette reads as foliage rather than a few smooth balls
-    for (let i = 0; i < 46; i++) {
-      const a = rand() * Math.PI * 2;
-      const u = rand() * 2 - 1;
-      const rr = 0.35 + 0.65 * Math.cbrt(rand());
-      const x = Math.cos(a) * Math.sqrt(1 - u * u) * 2.1 * rr;
-      const z = Math.sin(a) * Math.sqrt(1 - u * u) * 2.1 * rr;
-      const y = 4.9 + u * 1.7 * rr;
-      const s = mergeVertices(new THREE.IcosahedronGeometry(0.42 + rand() * 0.38, 1));
-      const p = s.attributes.position as THREE.BufferAttribute;
-      for (let k = 0; k < p.count; k++) {
-        const j = 0.7 + rand() * 0.6;
-        p.setXYZ(k, p.getX(k) * j, p.getY(k) * j * 0.8, p.getZ(k) * j);
-      }
-      s.translate(x, y, z);
-      parts.push(s);
-    }
-    // a few branches reaching into the crown
     for (let i = 0; i < 4; i++) {
       const br = new THREE.CylinderGeometry(0.04, 0.08, 1.8, 5);
       br.translate(0, 0.9, 0);
@@ -227,9 +241,14 @@ export function treeGeometries(): { trunk: THREE.BufferGeometry; crown: THREE.Bu
       branches.push(br);
     }
     const trunk = mergeGeometries([trunkCore, ...branches])!;
-    const crown = mergeGeometries(parts)!;
-    crown.computeVertexNormals();
-    return { trunk, crown };
+    const trunkFar = new THREE.CylinderGeometry(0.12, 0.2, 3.8, 5);
+    trunkFar.translate(0, 1.9, 0);
+    return {
+      trunk,
+      crown: crownGeometry(30, 1, 0.45, 0.4, 5),
+      trunkFar,
+      crownFar: crownGeometry(7, 0, 0.95, 0.4, 5),
+    };
   });
 }
 

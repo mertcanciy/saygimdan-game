@@ -4,10 +4,10 @@
 // shadows, image-based lighting (so glass actually reflects the sky), fog,
 // and the post-processing stack (AO, bloom, filmic tone mapping).
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { useFrame, useThree } from "@react-three/fiber";
-import { Environment, Sky, Stars, Lightformer } from "@react-three/drei";
+import { Environment, Sky, Stars, Lightformer, PerformanceMonitor } from "@react-three/drei";
 import { EffectComposer, Bloom, ToneMapping, Vignette, N8AO, SMAA } from "@react-three/postprocessing";
 import { ToneMappingMode } from "postprocessing";
 
@@ -281,21 +281,42 @@ function EnvSkyline({ night }: { night: boolean }) {
   );
 }
 
-/** Post-processing stack. Keep it last inside the Canvas. */
+/**
+ * Post-processing stack + adaptive quality. Keep it last inside the Canvas.
+ * A performance monitor watches the frame rate: on a struggling GPU it first
+ * drops the resolution, then ambient occlusion; it steps back up when there's
+ * headroom again.
+ */
 export function WorldEffects({ preset, ao = true }: { preset: WorldPreset; ao?: boolean }) {
   const p = PRESETS[preset];
+  const setDpr = useThree((s) => s.setDpr);
+  // 0 = full (dpr up to 1.5 + AO), 1 = dpr 1 + AO, 2 = dpr 1 without AO, 3 = dpr 0.8 without AO
+  const [level, setLevel] = useState(0);
+  useEffect(() => {
+    const max = Math.min(1.5, typeof window !== "undefined" ? window.devicePixelRatio : 1);
+    setDpr(level === 0 ? max : level === 3 ? 0.8 : 1);
+  }, [level, setDpr]);
+  const useAo = ao && level < 2;
   return (
-    <EffectComposer multisampling={0}>
-      {ao ? (
-        <N8AO aoRadius={4} distanceFalloff={1.2} intensity={preset === "night" ? 1.4 : 2.2} halfRes quality="performance" />
-      ) : (
-        <></>
-      )}
-      <Bloom luminanceThreshold={p.bloom.threshold} intensity={p.bloom.intensity} mipmapBlur radius={0.7} />
-      <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
-      <SMAA />
-      <Vignette eskil={false} offset={0.3} darkness={0.45} />
-    </EffectComposer>
+    <>
+      <PerformanceMonitor
+        bounds={(refresh) => (refresh > 90 ? [55, 85] : [44, 57])}
+        flipflops={4}
+        onDecline={() => setLevel((l) => Math.min(3, l + 1))}
+        onIncline={() => setLevel((l) => Math.max(0, l - 1))}
+      />
+      <EffectComposer multisampling={0}>
+        {useAo ? (
+          <N8AO aoRadius={4} distanceFalloff={1.2} intensity={preset === "night" ? 1.4 : 2.2} halfRes quality="performance" />
+        ) : (
+          <></>
+        )}
+        <Bloom luminanceThreshold={p.bloom.threshold} intensity={p.bloom.intensity} mipmapBlur radius={0.7} />
+        <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
+        <SMAA />
+        <Vignette eskil={false} offset={0.3} darkness={0.45} />
+      </EffectComposer>
+    </>
   );
 }
 

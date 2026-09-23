@@ -1,6 +1,7 @@
 "use client";
 
 import { useLayoutEffect, useMemo, useRef } from "react";
+import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import type { Building, CityData } from "./cityGen";
 import { getFacadeMaterial, makeFacadeAttributes } from "./facade";
@@ -218,29 +219,6 @@ export default function City({
     return new THREE.MeshStandardMaterial({ map: t, roughness: 1 });
   }, [city.blockSize]);
 
-  // ---------- trees ----------
-  const tree = treeGeometries();
-  const trunkRef = useRef<THREE.InstancedMesh>(null);
-  const crownRef = useRef<THREE.InstancedMesh>(null);
-  useInstanceLayout(trunkRef, city.trees, (t, o) => {
-    o.position.set(t.x, 0.18, t.z);
-    o.rotation.set(0, t.r, 0);
-    o.scale.setScalar(t.s);
-  });
-  useInstanceLayout(
-    crownRef,
-    city.trees,
-    (t, o) => {
-      o.position.set(t.x, 0.18, t.z);
-      o.rotation.set(0, t.r, 0);
-      o.scale.set(t.s, t.s * (0.9 + (t.r % 0.3)), t.s);
-    },
-    (t, c) => {
-      const k = (t.r * 7.13) % 1;
-      c.setRGB(0.22 + k * 0.12, 0.36 + k * 0.12, 0.14 + k * 0.05);
-    }
-  );
-
   // ---------- lamps ----------
   const lamp = lampGeometries();
   const poleRef = useRef<THREE.InstancedMesh>(null);
@@ -347,13 +325,7 @@ export default function City({
         <meshStandardMaterial color="#ff3b30" emissive="#ff2a1f" emissiveIntensity={1.5 + night * 6} />
       </instancedMesh>
 
-      {/* trees */}
-      <instancedMesh ref={trunkRef} args={[tree.trunk, undefined, n(city.trees.length)]} castShadow>
-        <meshStandardMaterial color="#4a3a2c" roughness={0.95} />
-      </instancedMesh>
-      <instancedMesh ref={crownRef} args={[tree.crown, undefined, n(city.trees.length)]} castShadow receiveShadow>
-        <meshStandardMaterial color="#ffffff" roughness={0.85} />
-      </instancedMesh>
+      <Trees trees={city.trees} />
 
       {/* street lamps */}
       <instancedMesh ref={poleRef} args={[lamp.pole, undefined, n(city.lamps.length)]} castShadow>
@@ -378,5 +350,108 @@ export default function City({
         />
       </instancedMesh>
     </group>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+
+const TREE_NEAR = 150; // metres: detailed crowns inside, coarse ones beyond
+const TREE_REFRESH = 0.25; // seconds between LOD re-sorts
+
+/**
+ * Street trees with two levels of detail. Every tree's matrix/colour is built
+ * once; a few times a second trees are re-sorted into a "near" (detailed) and a
+ * "far" (coarse) instanced mesh by distance to the camera.
+ */
+function Trees({ trees }: { trees: CityData["trees"] }) {
+  const geo = treeGeometries();
+  const nearTrunk = useRef<THREE.InstancedMesh>(null);
+  const nearCrown = useRef<THREE.InstancedMesh>(null);
+  const farTrunk = useRef<THREE.InstancedMesh>(null);
+  const farCrown = useRef<THREE.InstancedMesh>(null);
+  const clock = useRef({ t: TREE_REFRESH, x: 1e9, z: 1e9 });
+
+  const data = useMemo(() => {
+    const trunk = new Float32Array(trees.length * 16);
+    const crown = new Float32Array(trees.length * 16);
+    const color = new Float32Array(trees.length * 3);
+    trees.forEach((t, i) => {
+      tmp.position.set(t.x, 0.18, t.z);
+      tmp.rotation.set(0, t.r, 0);
+      tmp.scale.setScalar(t.s);
+      tmp.updateMatrix();
+      tmp.matrix.toArray(trunk, i * 16);
+      tmp.scale.set(t.s, t.s * (0.9 + (t.r % 0.3)), t.s);
+      tmp.updateMatrix();
+      tmp.matrix.toArray(crown, i * 16);
+      const k = (t.r * 7.13) % 1;
+      color.set([0.22 + k * 0.12, 0.36 + k * 0.12, 0.14 + k * 0.05], i * 3);
+    });
+    return { trunk, crown, color };
+  }, [trees]);
+
+  useFrame(({ camera }, dt) => {
+    const c = clock.current;
+    c.t += dt;
+    const moved = Math.abs(camera.position.x - c.x) + Math.abs(camera.position.z - c.z);
+    if (c.t < TREE_REFRESH || moved < 4) return;
+    c.t = 0;
+    c.x = camera.position.x;
+    c.z = camera.position.z;
+    const nt = nearTrunk.current;
+    const nc = nearCrown.current;
+    const ft = farTrunk.current;
+    const fc = farCrown.current;
+    if (!nt || !nc || !ft || !fc) return;
+    const near2 = TREE_NEAR * TREE_NEAR;
+    let n = 0;
+    let f = 0;
+    for (let i = 0; i < trees.length; i++) {
+      const dx = trees[i].x - c.x;
+      const dz = trees[i].z - c.z;
+      const isNear = dx * dx + dz * dz < near2;
+      const j = isNear ? n++ : f++;
+      const t = isNear ? nt : ft;
+      const cr = isNear ? nc : fc;
+      (t.instanceMatrix.array as Float32Array).set(data.trunk.subarray(i * 16, i * 16 + 16), j * 16);
+      (cr.instanceMatrix.array as Float32Array).set(data.crown.subarray(i * 16, i * 16 + 16), j * 16);
+      (cr.instanceColor!.array as Float32Array).set(data.color.subarray(i * 3, i * 3 + 3), j * 3);
+    }
+    nt.count = nc.count = n;
+    ft.count = fc.count = f;
+    for (const m of [nt, nc, ft, fc]) {
+      m.instanceMatrix.needsUpdate = true;
+      if (m.instanceColor) m.instanceColor.needsUpdate = true;
+      m.computeBoundingSphere();
+    }
+  });
+
+  // instanceColor has to exist before the first sort writes into it
+  useLayoutEffect(() => {
+    for (const m of [nearCrown.current, farCrown.current]) {
+      if (m && !m.instanceColor) m.setColorAt(0, tmpColor.setRGB(0.3, 0.42, 0.18));
+      if (m) m.count = 0;
+    }
+    if (nearTrunk.current) nearTrunk.current.count = 0;
+    if (farTrunk.current) farTrunk.current.count = 0;
+    clock.current.x = 1e9;
+  }, [data]);
+
+  const cap = Math.max(1, trees.length);
+  return (
+    <>
+      <instancedMesh ref={nearTrunk} args={[geo.trunk, undefined, cap]} castShadow>
+        <meshStandardMaterial color="#4a3a2c" roughness={0.95} />
+      </instancedMesh>
+      <instancedMesh ref={nearCrown} args={[geo.crown, undefined, cap]} castShadow receiveShadow>
+        <meshStandardMaterial color="#ffffff" roughness={0.85} />
+      </instancedMesh>
+      <instancedMesh ref={farTrunk} args={[geo.trunkFar, undefined, cap]}>
+        <meshStandardMaterial color="#4a3a2c" roughness={0.95} />
+      </instancedMesh>
+      <instancedMesh ref={farCrown} args={[geo.crownFar, undefined, cap]} castShadow>
+        <meshStandardMaterial color="#ffffff" roughness={0.9} />
+      </instancedMesh>
+    </>
   );
 }

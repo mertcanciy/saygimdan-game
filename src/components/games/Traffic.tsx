@@ -490,7 +490,7 @@ export default function Traffic({ started }: { started: boolean }) {
 
   return (
     <div className="absolute inset-0">
-      <Canvas shadows dpr={[1, 1.5]} gl={CANVAS_GL} camera={{ fov: 66, near: 0.05, far: 3000 }}>
+      <Canvas shadows="percentage" dpr={[1, 1.5]} gl={CANVAS_GL} camera={{ fov: 66, near: 0.05, far: 3000 }}>
         <TrafficScene started={started} onHud={setHud} />
       </Canvas>
       <div className="absolute top-4 right-4 flex flex-col gap-2 items-end">
