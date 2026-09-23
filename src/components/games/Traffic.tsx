@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
-import { Canvas, useFrame } from "@react-three/fiber";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Stars } from "@react-three/drei";
 import { EffectComposer, Bloom } from "@react-three/postprocessing";
 import Car from "./shared/Car";
@@ -19,6 +19,7 @@ const SEG_LEN = 60;
 const SEG_COUNT = 14;
 const _obj = new THREE.Object3D();
 const _col = new THREE.Color();
+const _headTarget = new THREE.Object3D();
 
 const PALETTE = ["#1b2138", "#232946", "#2a2038", "#1a2530", "#241d33"];
 const CAR_COLORS = ["#3b82f6", "#22c55e", "#eab308", "#e5e7eb", "#f97316", "#94a3b8", "#14b8a6", "#f43f5e"];
@@ -81,11 +82,11 @@ function Roadside({ zRef }: { zRef: React.MutableRefObject<number> }) {
     const lm = lampRef.current;
     const dm = dashRef.current;
     if (!im || !lm || !dm) return;
-    // recycle: place each item at z = base + k*cycle ahead of player (player drives -z)
+    // recycle: keep items in the window (pz-cycle+40, pz+40]; ahead = lower z
     const base = Math.floor(pz / cycle) * cycle;
     bData.forEach((b, i) => {
       let z = b.z + base;
-      while (z > pz - 20) z -= cycle; // keep behind->ahead ordering: we want z < pz+... player faces -z, so ahead = z < pz
+      while (z > pz + 40) z -= cycle;
       _obj.position.set(b.x, b.h / 2, z);
       _obj.scale.set(b.w, b.h, b.d);
       _obj.rotation.set(0, 0, 0);
@@ -98,7 +99,7 @@ function Roadside({ zRef }: { zRef: React.MutableRefObject<number> }) {
 
     lampData.forEach((l, i) => {
       let z = l.z + base;
-      while (z > pz - 20) z -= cycle;
+      while (z > pz + 40) z -= cycle;
       _obj.position.set(l.x, 5, z);
       _obj.scale.setScalar(0.35);
       _obj.rotation.set(0, 0, 0);
@@ -109,9 +110,9 @@ function Roadside({ zRef }: { zRef: React.MutableRefObject<number> }) {
 
     dashData.forEach((d, i) => {
       let z = d.z + base;
-      while (z > pz - 20) z -= cycle;
+      while (z > pz + 40) z -= cycle;
       _obj.position.set(d.x, 0.03, z);
-      _obj.scale.set(0.18, 0.01, 4);
+      _obj.scale.set(0.3, 0.01, 4);
       _obj.rotation.set(0, 0, 0);
       _obj.updateMatrix();
       dm.setMatrixAt(i, _obj.matrix);
@@ -136,7 +137,11 @@ function Roadside({ zRef }: { zRef: React.MutableRefObject<number> }) {
       </instancedMesh>
       <instancedMesh ref={dashRef} args={[undefined, undefined, dashData.length]} frustumCulled={false}>
         <boxGeometry args={[1, 1, 1]} />
-        <meshBasicMaterial color="#e8e8c8" />
+        <meshStandardMaterial
+          color="#e8e8c8"
+          emissive="#e8e8c8"
+          emissiveIntensity={1.2}
+        />
       </instancedMesh>
     </group>
   );
@@ -145,30 +150,65 @@ function Roadside({ zRef }: { zRef: React.MutableRefObject<number> }) {
 /* ---------- dashboard / cockpit ---------- */
 function Dashboard({ steerRef }: { steerRef: React.MutableRefObject<number> }) {
   const wheel = useRef<THREE.Mesh>(null);
+  const group = useRef<THREE.Group>(null);
+  const camera = useThree((s) => s.camera);
+  const scene = useThree((s) => s.scene);
+  // parent the cockpit to the camera itself so it can't lag a frame behind
+  useEffect(() => {
+    const g = group.current;
+    if (!g) return;
+    scene.add(camera);
+    camera.add(g);
+    return () => {
+      camera.remove(g);
+    };
+  }, [camera, scene]);
   useFrame(() => {
     if (wheel.current) wheel.current.rotation.z = -steerRef.current * 1.6;
   });
   return (
-    <group position={[0, -0.55, -1.1]}>
-      {/* hood lip */}
-      <mesh position={[0, -0.08, -0.9]}>
-        <boxGeometry args={[3.4, 0.3, 1.6]} />
-        <meshStandardMaterial color="#151018" roughness={0.7} />
+    <group ref={group}>
+      {/* hood lip — low strip across the bottom of the view */}
+      <mesh position={[0, -0.88, -1.6]}>
+        <boxGeometry args={[4.2, 0.5, 2.0]} />
+        <meshStandardMaterial
+          color="#241a30"
+          roughness={0.5}
+          metalness={0.3}
+          emissive="#1c1226"
+          emissiveIntensity={0.7}
+        />
       </mesh>
-      {/* dash */}
-      <mesh position={[0, 0.02, -0.35]}>
-        <boxGeometry args={[3.2, 0.28, 0.5]} />
-        <meshStandardMaterial color="#0e0d14" roughness={0.9} />
+      {/* dash — slim strip above the wheel */}
+      <mesh position={[0, -0.24, -1.0]}>
+        <boxGeometry args={[2.6, 0.15, 0.3]} />
+        <meshStandardMaterial
+          color="#161220"
+          roughness={0.85}
+          emissive="#0e0a16"
+          emissiveIntensity={0.8}
+        />
       </mesh>
-      {/* steering wheel */}
-      <mesh ref={wheel} position={[0, -0.05, 0.05]} rotation={[0.5, 0, 0]}>
-        <torusGeometry args={[0.22, 0.035, 8, 20]} />
-        <meshStandardMaterial color="#1c1a22" roughness={0.6} />
+      {/* steering wheel — bottom center, ring faces the driver */}
+      <mesh ref={wheel} position={[0, -0.45, -0.8]} rotation={[0.12, 0, 0]}>
+        <torusGeometry args={[0.18, 0.05, 8, 20]} />
+        <meshStandardMaterial
+          color="#2a2a3a"
+          roughness={0.4}
+          metalness={0.4}
+          emissive="#232338"
+          emissiveIntensity={1.0}
+        />
       </mesh>
-      {/* speed glow strip */}
-      <mesh position={[0, 0.06, -0.32]}>
-        <boxGeometry args={[1.2, 0.03, 0.03]} />
-        <meshStandardMaterial color={ACCENT} emissive={ACCENT} emissiveIntensity={2} />
+      {/* wheel column */}
+      <mesh position={[0, -0.62, -0.8]} rotation={[0.4, 0, 0]}>
+        <cylinderGeometry args={[0.035, 0.035, 0.3, 6]} />
+        <meshStandardMaterial color="#2c2838" roughness={0.6} />
+      </mesh>
+      {/* speed glow strip on the dash */}
+      <mesh position={[0, -0.155, -1.0]}>
+        <boxGeometry args={[0.8, 0.03, 0.03]} />
+        <meshStandardMaterial color={ACCENT} emissive={ACCENT} emissiveIntensity={1.2} />
       </mesh>
     </group>
   );
@@ -188,6 +228,7 @@ function TrafficScene({
   const carsGroup = useRef<THREE.Group>(null);
   const roadRef = useRef<THREE.Mesh>(null);
   const groundRef = useRef<THREE.Mesh>(null);
+  const headlight = useRef<THREE.SpotLight>(null);
   const playerZ = useRef(0);
   const steerVis = useRef(0);
 
@@ -240,6 +281,13 @@ function TrafficScene({
     steerVis.current = s.vx / 6;
     if (roadRef.current) roadRef.current.position.z = s.pz - 400;
     if (groundRef.current) groundRef.current.position.z = s.pz - 400;
+    // headlight beam onto the road ahead
+    if (headlight.current) {
+      headlight.current.position.set(s.px, 1.1, s.pz - 1);
+      _headTarget.position.set(s.px + s.vx * 0.5, 0, s.pz - 45);
+      _headTarget.updateMatrixWorld();
+      headlight.current.target = _headTarget;
+    }
 
     // camera: dashboard cam
     const shake = Math.min(0.06, s.speed * 0.0006);
@@ -331,15 +379,26 @@ function TrafficScene({
       <hemisphereLight args={["#4455aa", "#221133", 0.8]} />
       <directionalLight position={[200, 300, 100]} intensity={0.5} color="#8899ff" />
 
+      {/* headlight */}
+      <spotLight
+        ref={headlight}
+        color="#cfd9ff"
+        intensity={260}
+        distance={70}
+        angle={0.5}
+        penumbra={0.6}
+      />
+      <primitive object={_headTarget} />
+
       {/* road slab follows player */}
       <mesh ref={roadRef} rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, -400]}>
         <planeGeometry args={[LANE_W * 3 + 8, 1200]} />
-        <meshStandardMaterial color="#0d0d15" roughness={1} />
+        <meshStandardMaterial color="#1a1a24" roughness={0.9} />
       </mesh>
       {/* ground beyond */}
       <mesh ref={groundRef} rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.08, -400]}>
         <planeGeometry args={[600, 1400]} />
-        <meshStandardMaterial color="#08080f" roughness={1} />
+        <meshStandardMaterial color="#0c0c14" roughness={1} />
       </mesh>
 
       <Roadside zRef={playerZ} />
