@@ -3,50 +3,93 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Maximize2, Minimize2 } from "lucide-react";
 import { GameInfo } from "@/lib/games";
 import { useHydrated, useMusicStore, useUserStore } from "@/lib/store";
 import { GAME_COMPONENTS } from "@/components/games";
+import TouchControls, { TOUCH_HELP } from "@/components/games/shared/TouchControls";
+import { useIsPortrait, useIsTouch } from "@/components/games/shared/useDevice";
 import { Keys, Pill } from "@/components/site/Chrome";
+
+function canFullscreen() {
+  return typeof document !== "undefined" && !!document.documentElement.requestFullscreen;
+}
+
+async function enterLandscapeFullscreen() {
+  try {
+    if (canFullscreen() && !document.fullscreenElement) await document.documentElement.requestFullscreen({ navigationUI: "hide" });
+    const o = screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> };
+    await o.lock?.("landscape");
+  } catch {
+    // iOS Safari and some browsers refuse; the rotate hint covers that case
+  }
+}
 
 export default function PlayShell({ game }: { game: GameInfo }) {
   const router = useRouter();
   const user = useUserStore((s) => s.user);
   const hydrated = useHydrated();
   const startMusic = useMusicStore((s) => s.start);
+  const touch = useIsTouch();
+  const portrait = useIsPortrait();
   const [started, setStarted] = useState(false);
   const [showControls, setShowControls] = useState(false);
+  const [portraitOk, setPortraitOk] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
 
   useEffect(() => {
     if (hydrated && !user) router.replace("/#giris");
   }, [hydrated, user, router]);
+
+  useEffect(() => {
+    const on = () => setFullscreen(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", on);
+    return () => document.removeEventListener("fullscreenchange", on);
+  }, []);
 
   const GameComponent = GAME_COMPONENTS[game.slug];
 
   const begin = () => {
     startMusic();
     setStarted(true);
+    if (touch) void enterLandscapeFullscreen();
+  };
+
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) void document.exitFullscreen();
+    else void enterLandscapeFullscreen();
   };
 
   return (
-    <main className="relative h-dvh w-full overflow-hidden bg-[#c9d4de] select-none">
+    <main className="relative h-dvh w-full touch-none overflow-hidden overscroll-none bg-[#c9d4de] select-none">
       {hydrated && user && <GameComponent started={started} />}
 
       {/* top-left: way back + where you are */}
-      <div className="absolute left-4 top-4 z-20 flex items-center gap-2">
+      <div className="absolute left-[max(1rem,env(safe-area-inset-left))] top-4 z-30 flex items-center gap-2 short:top-3">
         <Link
           href="/games"
-          className="inline-flex h-10 items-center gap-2 rounded-full border border-line bg-paper/95 pl-3 pr-4 text-[14px] font-medium text-ink backdrop-blur hover:border-ink"
+          className="inline-flex h-10 items-center gap-2 rounded-full border border-line bg-paper/95 pl-3 pr-4 text-[14px] font-medium text-ink backdrop-blur hover:border-ink short:h-9"
         >
           <ArrowLeft className="size-4" /> Oyunlar
         </Link>
-        <span className="inline-flex h-10 items-center rounded-full bg-ink px-4 text-[14px] font-semibold tracking-[-0.01em] text-paper">
+        <span className="inline-flex h-10 items-center rounded-full bg-ink px-4 text-[14px] font-semibold tracking-[-0.01em] text-paper ring-1 ring-white/30 short:h-9">
           {game.title}
         </span>
+        {touch && canFullscreen() && (
+          <button
+            type="button"
+            onClick={toggleFullscreen}
+            aria-label={fullscreen ? "Tam ekrandan çık" : "Tam ekran"}
+            className="grid size-10 place-items-center rounded-full border border-line bg-paper/95 text-ink backdrop-blur short:size-9"
+          >
+            {fullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
+          </button>
+        )}
       </div>
 
-      {/* bottom-left: controls reference */}
-      {started && (
+      {/* touch controls, or the keyboard reference on desktop */}
+      {started && touch && <TouchControls slug={game.slug} />}
+      {started && !touch && (
         <div className="absolute bottom-4 left-4 z-20 max-w-[20rem]">
           {showControls && <ControlsCard game={game} className="mb-2 animate-fade-up" />}
           <button
@@ -62,18 +105,47 @@ export default function PlayShell({ game }: { game: GameInfo }) {
 
       {/* start sheet */}
       {!started && (
-        <div className="absolute inset-0 z-30 flex items-end bg-paper/55 backdrop-blur-[6px] sm:items-center">
-          <div className="mx-auto w-full max-w-[1180px] px-4 pb-24 sm:px-10 sm:pb-0">
-            <div className="max-w-[34rem] rounded-[28px] bg-paper p-7 shadow-[0_30px_80px_-30px_rgba(0,0,0,0.35)] sm:p-10 animate-fade-up">
-              <p className="text-[15px] text-muted-ink">{game.subtitle}</p>
-              <h1 className="display mt-2 text-[clamp(3.2rem,7vw,5.5rem)]">{game.title}</h1>
-              <p className="mt-5 text-[16px] leading-[1.55] text-ink">{game.description}</p>
-              <p className="mt-3 text-[15px] leading-[1.55] text-muted-ink">{game.goal}</p>
-              <ControlsList game={game} className="mt-6" />
-              <div className="mt-8">
+        <div className="absolute inset-0 z-30 flex items-end overflow-y-auto bg-paper/55 backdrop-blur-[6px] sm:items-center">
+          <div className="mx-auto w-full max-w-[1180px] px-4 pb-24 pt-20 sm:px-10 sm:pb-0 short:py-3">
+            <div className="max-w-[34rem] rounded-[28px] bg-paper p-7 shadow-[0_30px_80px_-30px_rgba(0,0,0,0.35)] sm:p-10 short:max-w-[40rem] short:p-5 animate-fade-up">
+              <p className="text-[15px] text-muted-ink short:hidden">{game.subtitle}</p>
+              <h1 className="display mt-2 text-[clamp(3.2rem,7vw,5.5rem)] short:mt-0 short:text-[2.6rem]">{game.title}</h1>
+              <p className="mt-5 text-[16px] leading-[1.55] text-ink short:mt-2 short:text-[14px]">{game.description}</p>
+              <p className="mt-3 text-[15px] leading-[1.55] text-muted-ink short:hidden">{game.goal}</p>
+              {touch ? (
+                <ul className="mt-6 grid gap-1.5 text-[14px] text-ink short:mt-3 short:text-[13px]">
+                  {TOUCH_HELP[game.slug].map((line) => (
+                    <li key={line} className="flex gap-2">
+                      <span aria-hidden className="mt-[0.45em] size-1.5 shrink-0 rounded-full bg-yellow" />
+                      {line}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <ControlsList game={game} className="mt-6" />
+              )}
+              <div className="mt-8 short:mt-4">
                 <Pill onClick={begin}>Başlat</Pill>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* phones held upright: suggest landscape (can be dismissed) */}
+      {touch && portrait && !portraitOk && (
+        <div className="absolute inset-0 z-40 grid place-items-center bg-paper px-8 text-center">
+          <div>
+            <div aria-hidden className="mx-auto mb-6 h-16 w-10 rotate-90 rounded-[10px] border-[3px] border-ink" />
+            <p className="display-2 text-[2rem]">Telefonu yan çevir.</p>
+            <p className="mt-3 text-[15px] leading-[1.5] text-muted-ink">Kontroller iki başparmakla, yatay ekranda çok daha rahat.</p>
+            <button
+              type="button"
+              onClick={() => setPortraitOk(true)}
+              className="mt-8 text-[15px] font-medium text-ink underline underline-offset-4"
+            >
+              Dikey devam et
+            </button>
           </div>
         </div>
       )}

@@ -10,6 +10,7 @@ import { useFrame, useThree } from "@react-three/fiber";
 import { Environment, Sky, Stars, Lightformer, PerformanceMonitor } from "@react-three/drei";
 import { EffectComposer, Bloom, ToneMapping, Vignette, N8AO, SMAA } from "@react-three/postprocessing";
 import { ToneMappingMode } from "postprocessing";
+import { isTouchDevice } from "./input";
 
 export type WorldPreset = "day" | "golden" | "night";
 
@@ -149,6 +150,7 @@ export function WorldAtmosphere({
   const sunDir = useMemo(() => new THREE.Vector3(...p.sun).normalize(), [p]);
   const light = useRef<THREE.DirectionalLight>(null);
   const skyGroup = useRef<THREE.Group>(null);
+  const mobile = useMemo(() => isTouchDevice(), []);
   const get = useThree((s) => s.get);
 
   useEffect(() => {
@@ -180,7 +182,7 @@ export function WorldAtmosphere({
     if (focus?.current) _focus.copy(focus.current);
     else _focus.copy(camera.position);
     // snap to shadow texels to avoid shimmering while moving
-    const texel = (shadowSize * 2) / 2048;
+    const texel = (shadowSize * 2) / (mobile ? 1024 : 2048);
     _focus.x = Math.round(_focus.x / texel) * texel;
     _focus.z = Math.round(_focus.z / texel) * texel;
     _focus.y = Math.max(0, Math.round(_focus.y / texel) * texel);
@@ -215,7 +217,7 @@ export function WorldAtmosphere({
         color={p.sunColor}
         intensity={p.sunIntensity}
         castShadow={preset !== "night"}
-        shadow-mapSize={[2048, 2048]}
+        shadow-mapSize={mobile ? [1024, 1024] : [2048, 2048]}
         shadow-bias={-0.0004}
         shadow-normalBias={0.06}
         shadow-camera-left={-shadowSize}
@@ -291,7 +293,8 @@ export function WorldEffects({ preset, ao = true }: { preset: WorldPreset; ao?: 
   const p = PRESETS[preset];
   const setDpr = useThree((s) => s.setDpr);
   // 0 = full (dpr up to 1.5 + AO), 1 = dpr 1 + AO, 2 = dpr 1 without AO, 3 = dpr 0.8 without AO
-  const [level, setLevel] = useState(0);
+  // phones start at "dpr 1, no AO" and can still step up if they have headroom
+  const [level, setLevel] = useState(() => (isTouchDevice() ? 2 : 0));
   useEffect(() => {
     const max = Math.min(1.5, typeof window !== "undefined" ? window.devicePixelRatio : 1);
     setDpr(level === 0 ? max : level === 3 ? 0.8 : 1);

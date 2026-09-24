@@ -353,6 +353,9 @@ function DriftScene({ started, onHud }: { started: boolean; onHud: (h: Hud) => v
 
   const st = useRef({
     pos: new THREE.Vector3(0, 0, 10),
+    prevPos: new THREE.Vector3(0, 0, 10),
+    rPos: new THREE.Vector3(0, 0, 10),
+    prevHeading: 0,
     y: 0,
     vel: new THREE.Vector3(),
     heading: 0,
@@ -414,8 +417,10 @@ function DriftScene({ started, onHud }: { started: boolean; onHud: (h: Hud) => v
       if (edge(k, "KeyC")) s.hood = !s.hood;
       if (edge(k, "KeyR")) {
         s.pos.set(0, 0, 10);
+        s.prevPos.copy(s.pos);
         s.vel.set(0, 0, 0);
         s.heading = 0;
+        s.prevHeading = 0;
         s.yawRate = 0;
         _body.drift = 0;
         _body.betaPrev = undefined;
@@ -429,10 +434,17 @@ function DriftScene({ started, onHud }: { started: boolean; onHud: (h: Hud) => v
     if (started) {
       s.acc += dt;
       while (s.acc >= SUB) {
+        s.prevPos.copy(s.pos);
+        s.prevHeading = s.heading;
         step(SUB);
         s.acc -= SUB;
       }
     }
+    // render between the last two physics states so motion stays smooth at
+    // any refresh rate (physics runs at a fixed 120 Hz)
+    const alpha = started ? s.acc / SUB : 1;
+    const rp = s.rPos.lerpVectors(s.prevPos, s.pos, alpha);
+    const rh = s.prevHeading + (s.heading - s.prevHeading) * alpha;
 
     const speed = s.vel.length();
     const vF = Math.sin(s.heading) * s.vel.x + Math.cos(s.heading) * s.vel.z;
@@ -442,7 +454,7 @@ function DriftScene({ started, onHud }: { started: boolean; onHud: (h: Hud) => v
     const drifting = slip > (12 * Math.PI) / 180 && slip < (80 * Math.PI) / 180 && vF > 5 && speed > 7;
     s.slip = slip;
     s.drifting = drifting;
-    focus.current.copy(s.pos);
+    focus.current.copy(rp);
 
     // ---- suspension: spring-damper roll / pitch driven by accelerations ----
     const rollTarget = THREE.MathUtils.clamp(s.aLat * 0.0075, -0.085, 0.085);
@@ -454,11 +466,11 @@ function DriftScene({ started, onHud }: { started: boolean; onHud: (h: Hud) => v
 
     // ---- car transform ----
     const g = car.current;
-    const ground = groundAt(s.pos.x, s.pos.z);
+    const ground = groundAt(rp.x, rp.z);
     s.y += (ground - s.y) * Math.min(1, 18 * dt);
     if (g?.group) {
-      g.group.position.set(s.pos.x, s.y, s.pos.z);
-      g.group.rotation.y = s.heading;
+      g.group.position.set(rp.x, s.y, rp.z);
+      g.group.rotation.y = rh;
       if (g.body) {
         g.body.rotation.z = s.roll;
         g.body.rotation.x = s.pitch;
@@ -476,12 +488,12 @@ function DriftScene({ started, onHud }: { started: boolean; onHud: (h: Hud) => v
     }
 
     // ---- smoke + skid emit points (rear wheels, world space) ----
-    _fwd.set(Math.sin(s.heading), 0, Math.cos(s.heading));
-    _right.set(Math.cos(s.heading), 0, -Math.sin(s.heading));
+    _fwd.set(Math.sin(rh), 0, Math.cos(rh));
+    _right.set(Math.cos(rh), 0, -Math.sin(rh));
     const wheelSlide = drifting || (started && k.has("Space") && speed > 4);
     if (wheelSlide && started) {
-      _rw[0].copy(s.pos).addScaledVector(_fwd, -1.3).addScaledVector(_right, -0.82);
-      _rw[1].copy(s.pos).addScaledVector(_fwd, -1.3).addScaledVector(_right, 0.82);
+      _rw[0].copy(rp).addScaledVector(_fwd, -1.3).addScaledVector(_right, -0.82);
+      _rw[1].copy(rp).addScaledVector(_fwd, -1.3).addScaledVector(_right, 0.82);
       const intensity = THREE.MathUtils.clamp((slip - 0.15) * 1.6 + speed * 0.012, 0.15, 1);
       skid.current.active = true;
       skid.current.pts[0].copy(_rw[0]);
@@ -517,19 +529,19 @@ function DriftScene({ started, onHud }: { started: boolean; onHud: (h: Hud) => v
       cam.fov = 50;
       cam.updateProjectionMatrix();
     } else if (debugCam === "top") {
-      cam.position.set(s.pos.x, 110, s.pos.z + 0.01);
-      cam.lookAt(s.pos.x, 0, s.pos.z);
+      cam.position.set(rp.x, 110, rp.z + 0.01);
+      cam.lookAt(rp.x, 0, rp.z);
       cam.fov = 60;
       cam.updateProjectionMatrix();
     } else if (debugCam === "orbit" || debugCam === "front" || debugCam === "side") {
       const a = debugCam === "orbit" ? s.t * 0.35 + 0.7 : debugCam === "front" ? 0.55 : Math.PI / 2;
-      cam.position.set(s.pos.x + Math.sin(s.heading + a) * 6.2, 1.7, s.pos.z + Math.cos(s.heading + a) * 6.2);
-      cam.lookAt(s.pos.x, 0.65, s.pos.z);
+      cam.position.set(rp.x + Math.sin(rh + a) * 6.2, 1.7, rp.z + Math.cos(rh + a) * 6.2);
+      cam.lookAt(rp.x, 0.65, rp.z);
       cam.fov = 45;
       cam.updateProjectionMatrix();
     } else if (s.hood) {
-      _camPos.copy(s.pos).addScaledVector(_fwd, 0.3).setY(s.y + 1.18);
-      _look.copy(s.pos).addScaledVector(_fwd, 14).setY(s.y + 0.9);
+      _camPos.copy(rp).addScaledVector(_fwd, 0.3).setY(s.y + 1.18);
+      _look.copy(rp).addScaledVector(_fwd, 14).setY(s.y + 0.9);
       cam.position.copy(_camPos);
       cam.lookAt(_look);
       cam.rotateZ(-s.roll * 0.6);
@@ -537,26 +549,26 @@ function DriftScene({ started, onHud }: { started: boolean; onHud: (h: Hud) => v
       cam.updateProjectionMatrix();
     } else {
       // yaw follows a blend of heading and travel direction, critically damped
-      let targetYaw = s.heading;
+      let targetYaw = rh;
       if (speed > 3) {
         const velYaw = Math.atan2(s.vel.x, s.vel.z);
-        const back = Math.cos(velYaw - s.heading) < -0.2; // reversing
-        if (!back) targetYaw = smoothAngle(s.heading, velYaw, 0.5);
+        const back = Math.cos(velYaw - rh) < -0.2; // reversing
+        if (!back) targetYaw = smoothAngle(rh, velYaw, 0.5);
       }
       if (!s.camInit) s.camYaw = targetYaw;
       s.camYaw = smoothAngle(s.camYaw, targetYaw, 1 - Math.exp(-3.6 * dt));
       const dist = 7.2 + Math.min(2.2, speed * 0.045);
       const height = 2.5 + Math.min(0.9, speed * 0.018);
       _camPos.set(
-        s.pos.x - Math.sin(s.camYaw) * dist,
+        rp.x - Math.sin(s.camYaw) * dist,
         s.y + height,
-        s.pos.z - Math.cos(s.camYaw) * dist
+        rp.z - Math.cos(s.camYaw) * dist
       );
       // smooth, low-frequency shake (impacts + a little at speed)
       const sh = s.shake * 0.35 + Math.min(0.03, speed * 0.0006);
       _camPos.x += Math.sin(s.t * 23.1) * sh;
       _camPos.y += Math.sin(s.t * 19.7 + 1.3) * sh;
-      _look.copy(s.pos).addScaledVector(_fwd, 2.5).setY(s.y + 1.0);
+      _look.copy(rp).addScaledVector(_fwd, 2.5).setY(s.y + 1.0);
       if (!s.camInit) {
         cam.position.copy(_camPos);
         s.camLook.copy(_look);
@@ -774,7 +786,10 @@ export default function Drift({ started }: { started: boolean }) {
       {hud.bannerId > 0 && <HudBanner keyId={hud.bannerId} text={hud.bannerText} accent="#f97316" />}
       {hud.hit && <HudModal title="Çarptın!" accent="#e11d48" lines={["Drift zinciri sıfırlandı"]} tone="danger" />}
       {started && !hud.drifting && hud.chain === 0 && hud.speed < 5 && (
-        <HudCenter text="W: gaz · A/D: direksiyon · Space basılı: el freni → drift · C: kamera · R: sıfırla" />
+        <HudCenter
+          text="W: gaz · A/D: direksiyon · Space basılı: el freni → drift · C: kamera · R: sıfırla"
+          touchText="Gazla hızlan, el freniyle drifte gir"
+        />
       )}
     </div>
   );

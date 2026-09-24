@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+/* landscape phones (short viewports) and narrow portrait phones */
+@custom-variant short (@media (max-height: 520px));
+@custom-variant narrow (@media (max-width: 480px));
+
 /* Paper, ink and one highlighter. */
 :root {
   --paper: #ffffff;

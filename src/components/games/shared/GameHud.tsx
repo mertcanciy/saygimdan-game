@@ -1,6 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
+import { useIsTouch } from "./useDevice";
 
 /*
  * In-game HUD in the site's paper/ink language: white tiles, ink numbers,
@@ -21,33 +22,40 @@ export function HudStat({
   sub?: string;
 }) {
   return (
-    <div className="min-w-[8.5rem] rounded-2xl bg-white/92 px-4 py-2.5 text-[#0a0a0a] shadow-[0_8px_24px_-14px_rgba(0,0,0,0.45)] backdrop-blur">
-      <div className="flex items-center gap-1.5 text-[12px] text-[#6e6e6e]">
+    <div className="min-w-[8.5rem] rounded-2xl bg-white/92 px-4 py-2.5 text-[#0a0a0a] shadow-[0_8px_24px_-14px_rgba(0,0,0,0.45)] backdrop-blur short:min-w-[6.5rem] short:rounded-xl short:px-3 short:py-1.5 narrow:min-w-[6rem] narrow:px-3 narrow:py-1.5">
+      <div className="flex items-center gap-1.5 text-[12px] text-[#6e6e6e] short:text-[10.5px] narrow:text-[10.5px]">
         <span className="size-1.5 rounded-full" style={{ background: accent }} aria-hidden />
         {label}
       </div>
-      <div className="text-[26px] font-bold leading-[1.1] tracking-[-0.035em] tabular-nums">{value}</div>
-      {sub && <div className="text-[12px] font-medium text-[#0a0a0a]">{sub}</div>}
+      <div className="text-[26px] font-bold leading-[1.1] tracking-[-0.035em] tabular-nums short:text-[18px] narrow:text-[18px]">{value}</div>
+      {sub && <div className="text-[12px] font-medium text-[#0a0a0a] short:hidden">{sub}</div>}
     </div>
   );
 }
 
-/** Centered pill hint (e.g. "click to look around"). */
-export function HudCenter({ text, className }: { text: string; className?: string }) {
+/**
+ * Centered pill hint (e.g. "click to look around"). Keyboard/mouse hints are
+ * hidden on touch devices unless a `touchText` alternative is given.
+ */
+export function HudCenter({ text, touchText, className }: { text: string; touchText?: string; className?: string }) {
+  const touch = useIsTouch();
+  if (touch && !touchText) return null;
   return (
-    <div className={cn("pointer-events-none absolute inset-x-0 top-5 flex justify-center px-40", className)}>
+    <div className={cn("pointer-events-none absolute inset-x-0 top-5 flex justify-center px-40 short:top-3 narrow:top-16 narrow:px-4", className)}>
       <span className="rounded-full bg-[#0a0a0a]/80 px-4 py-2 text-[13px] font-medium text-white backdrop-blur text-center">
-        {text}
+        {touch ? touchText : text}
       </span>
     </div>
   );
 }
 
-/** Small hint near the bottom. */
-export function HudHint({ text }: { text: string }) {
+/** Small hint near the bottom (keyboard hints; hidden on touch unless `touchText`). */
+export function HudHint({ text, touchText }: { text: string; touchText?: string }) {
+  const touch = useIsTouch();
+  if (touch && !touchText) return null;
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-24 flex justify-center px-4">
-      <span className="rounded-full bg-white/90 px-4 py-2 text-[13px] text-[#0a0a0a] backdrop-blur">{text}</span>
+      <span className="rounded-full bg-white/90 px-4 py-2 text-[13px] text-[#0a0a0a] backdrop-blur">{touch ? touchText : text}</span>
     </div>
   );
 }
@@ -71,7 +79,7 @@ export function HudBanner({
       key={keyId}
       className={cn("pointer-events-none absolute inset-x-0 top-[20%] flex flex-col items-center animate-pop", className)}
     >
-      <span className="bg-[#ffd400] px-3 text-[clamp(2.2rem,5vw,3.8rem)] font-extrabold leading-[1.05] tracking-[-0.05em] text-[#0a0a0a]">
+      <span className="bg-[#ffd400] px-3 text-[clamp(1.6rem,5vw,3.8rem)] font-extrabold leading-[1.05] tracking-[-0.05em] text-[#0a0a0a]">
         {text}
       </span>
       {sub && (
@@ -120,8 +128,8 @@ export function HudModal({
 /** Progress-style bar (throttle, nitro). */
 export function HudBar({ label, value, accent }: { label: string; value: number; accent: string }) {
   return (
-    <div className="min-w-[8.5rem] rounded-2xl bg-white/92 px-4 py-2.5 text-[#0a0a0a] shadow-[0_8px_24px_-14px_rgba(0,0,0,0.45)] backdrop-blur">
-      <div className="flex justify-between text-[12px] text-[#6e6e6e]">
+    <div className="min-w-[8.5rem] rounded-2xl bg-white/92 px-4 py-2.5 text-[#0a0a0a] shadow-[0_8px_24px_-14px_rgba(0,0,0,0.45)] backdrop-blur short:min-w-[6.5rem] short:rounded-xl short:px-3 short:py-1.5">
+      <div className="flex justify-between text-[12px] text-[#6e6e6e] short:text-[10.5px]">
         <span>{label}</span>
         <span className="tabular-nums">{Math.round(value * 100)}%</span>
       </div>

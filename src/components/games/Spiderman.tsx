@@ -772,7 +772,10 @@ export default function Spiderman({ started }: { started: boolean }) {
         <HudBanner text="Tüm halkalar toplandı!" accent={ACCENT} sub={`Skor ${hud.score}`} />
       )}
       {started && !hud.attached && hud.height < 2 && hud.speed < 5 && (
-        <HudHint text="Ağ atmak için Space'e basılı tut, bırakınca uçarsın · Shift ile dalış" />
+        <HudHint
+          text="Ağ atmak için Space'e basılı tut, bırakınca uçarsın · Shift ile dalış"
+          touchText="Ağ tuşuna basılı tut, bırakınca uçarsın"
+        />
       )}
     </div>
   );

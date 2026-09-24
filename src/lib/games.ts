@@ -78,6 +78,8 @@ export const GAMES: GameInfo[] = [
       { keys: ["W"], label: "gaz" },
       { keys: ["S"], label: "fren" },
       { keys: ["Shift"], label: "nitro" },
+      { keys: ["F"], label: "selektör: öndeki araç yol verir" },
+      { keys: ["H"], label: "korna" },
     ],
     accent: "#d97706",
     tint: "#fef3c7",

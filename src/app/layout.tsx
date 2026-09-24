@@ -25,8 +25,8 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="tr" className={`${sans.variable} ${mono.variable} antialiased`}>
-      <body>
+    <html lang="tr" className={`${sans.variable} ${mono.variable} antialiased`} suppressHydrationWarning>
+      <body suppressHydrationWarning>
         {children}
         <SongDock />
       </body>

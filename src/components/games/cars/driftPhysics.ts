@@ -5,7 +5,8 @@
 import * as THREE from "three";
 
 export const WHEELBASE = 2.66;
-export const MAX_VF = 48; // m/s (~170 km/h)
+/** safety cap only; the real top speed (~185 km/h) comes from drag */
+export const MAX_VF = 70;
 
 /*
  * Tyre / chassis constants for the drift model. The rear is a touch less
@@ -25,11 +26,13 @@ export const TYRE = {
   muRear: 1.2,
   stiffB: 7.5,
   shapeC: 1.25,
-  power: 260000, // W
+  power: 300000, // W
   maxDrive: 11500, // N
   brake: 15000,
   rollRes: 180,
-  aero: 0.42,
+  // drag balances full power at ~51 m/s, so acceleration fades smoothly
+  // towards top speed instead of hitting a wall
+  aero: 2.1,
   maxSteer: 0.62,
   minSteer: 0.05,
   /** full keyboard steer asks for this fraction of the front grip */

@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import { Pause, Play, Volume2, VolumeX } from "lucide-react";
 import { MUSIC } from "@/lib/music";
 import { useMusicStore } from "@/lib/store";
+import { useIsTouch } from "@/components/games/shared/useDevice";
 
 declare global {
   interface Window {
@@ -39,6 +41,10 @@ export default function SongDock() {
   const [volume, setVolume] = useState(0.8);
   const [muted, setMuted] = useState(false);
   const volRef = useRef(volume);
+  // in-game on a phone the corners belong to the thumbs: shrink to a small pill at the bottom centre
+  const pathname = usePathname();
+  const touch = useIsTouch();
+  const compact = touch && pathname.startsWith("/play");
   const initRef = useRef(false);
 
   useEffect(() => {
@@ -173,7 +179,11 @@ export default function SongDock() {
 
   return (
     <div
-      className="fixed bottom-4 right-4 z-50 flex items-center gap-3 rounded-full border border-line bg-paper/95 py-1.5 pl-1.5 pr-4 text-ink shadow-[0_10px_30px_-12px_rgba(0,0,0,0.25)] backdrop-blur"
+      className={`fixed z-50 flex items-center gap-3 rounded-full border border-line bg-paper/95 py-1.5 pl-1.5 text-ink shadow-[0_10px_30px_-12px_rgba(0,0,0,0.25)] backdrop-blur ${
+        compact
+          ? "bottom-[max(1rem,env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 pr-3"
+          : "bottom-4 right-4 pr-4"
+      }`}
       role="region"
       aria-label="Şarkı çalar"
     >
@@ -203,12 +213,12 @@ export default function SongDock() {
         ))}
       </div>
 
-      <div className="min-w-0 leading-tight">
+      <div className={`min-w-0 leading-tight ${compact ? "hidden" : ""}`}>
         <div className="text-[13px] font-semibold tracking-[-0.01em] whitespace-nowrap">Bengü, Saygımdan</div>
         <div className="text-[11.5px] text-muted-ink whitespace-nowrap">{status}</div>
       </div>
 
-      {(mode === "audio" || mode === "youtube") && (
+      {!compact && (mode === "audio" || mode === "youtube") && (
         <div className="hidden sm:flex items-center gap-2 pl-1">
           <button
             type="button"

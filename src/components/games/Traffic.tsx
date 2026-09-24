@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { mulberry32 } from "./shared/cityGen";
-import { useKeys } from "./shared/useKeys";
+import { useKeys, makeEdge } from "./shared/useKeys";
 import Particles, { type ParticleHandle } from "./shared/Particles";
 import { WorldAtmosphere, WorldEffects, CANVAS_GL } from "./shared/World";
 import { HudStat, HudBanner, HudModal, HudBar, HudCenter } from "./shared/GameHud";
@@ -14,6 +14,7 @@ import Car, { type CarHandle } from "./shared/Car";
 import TrafficFleet, { type FleetCar } from "./cars/TrafficFleet";
 import { buildCar, type CarType } from "./cars/carGeometry";
 import { beamTexture, TRAFFIC_PAINTS } from "./cars/carMaterials";
+import { CarHorn } from "./cars/horn";
 import { getGame } from "@/lib/games";
 
 const ACCENT = getGame("traffic")!.accent;
@@ -51,7 +52,15 @@ interface TrafficCar extends FleetCar {
   passed: boolean;
   halfW: number;
   halfL: number;
+  /** seconds the turn signal keeps blinking */
   blinkT: number;
+  /** > 0: reaction delay before moving over for the player (flash / horn) */
+  yieldT: number;
+  /** > 0: delay before honking back at the player */
+  honkWait: number;
+  honkDur: number;
+  /** > 0: flashing its headlights */
+  flashT: number;
 }
 
 interface OncomingCar extends FleetCar {
@@ -60,6 +69,19 @@ interface OncomingCar extends FleetCar {
 
 function heavy(t: CarType) {
   return t === "bus" || t === "truck";
+}
+
+/** Can car `c` move into lane `nl` right now (no car alongside, player not there)? */
+function laneFree(cars: TrafficCar[], c: TrafficCar, nl: number, px: number, pz: number): boolean {
+  if (nl < 0 || nl >= LANES) return false;
+  const nx = nl * LANE_W;
+  for (let j = 0; j < cars.length; j++) {
+    const o = cars[j];
+    if (o === c) continue;
+    const near = Math.abs(o.z - c.z) < o.halfL + c.halfL + 8;
+    if (near && (Math.abs(o.x - nx) < 2.6 || (o.laneT < 1 && o.targetLane === nl))) return false;
+  }
+  return !(Math.abs(px - nx) < 2.6 && Math.abs(pz - c.z) < c.halfL + 10);
 }
 
 function TrafficScene({ started, onHud }: { started: boolean; onHud: (h: Hud) => void }) {
@@ -81,6 +103,12 @@ function TrafficScene({ started, onHud }: { started: boolean; onHud: (h: Hud) =>
     []
   );
   const playerCar = useRef<CarHandle>(null);
+  const beamMat = useRef<THREE.MeshBasicMaterial>(null);
+  /** 0..1 high beams (selektör), read by the dashboard tell-tale */
+  const highBeam = useRef(0);
+  const edge = useMemo(() => makeEdge(), []);
+  const horn = useMemo(() => new CarHorn(), []);
+  useEffect(() => () => horn.dispose(), [horn]);
 
   const st = useRef({
     pz: 0,
@@ -103,6 +131,10 @@ function TrafficScene({ started, onHud }: { started: boolean; onHud: (h: Hud) =>
     hudT: 0,
     t: 0,
     gear: 1,
+    /** selektör pulse timer / smoothed high-beam level */
+    beamT: 0,
+    hb: 0,
+    honkCd: 0,
     lastHud: null as Hud | null,
   });
 
@@ -115,7 +147,7 @@ function TrafficScene({ started, onHud }: { started: boolean; onHud: (h: Hud) =>
       const cruise = heavy(type) ? 14 + r() * 5 : 17 + r() * 11;
       return {
         type,
-        color: new THREE.Color(heavy(type) && r() < 0.6 ? "#e8e8e4" : TRAFFIC_PAINTS[Math.floor(r() * TRAFFIC_PAINTS.length)]),
+        color: new THREE.Color(heavy(type) && r() < 0.6 ? "#bdbeb9" : TRAFFIC_PAINTS[Math.floor(r() * TRAFFIC_PAINTS.length)]),
         x: lane * LANE_W,
         y: 0,
         z: -60 - i * 30 - r() * 20,
@@ -131,6 +163,12 @@ function TrafficScene({ started, onHud }: { started: boolean; onHud: (h: Hud) =>
         halfW: spec.W / 2,
         halfL: spec.L / 2,
         blinkT: 0,
+        yieldT: 0,
+        honkWait: 0,
+        honkDur: 0,
+        flashT: 0,
+        blink: 0,
+        flash: 0,
       };
     });
   };
@@ -188,6 +226,39 @@ function TrafficScene({ started, onHud }: { started: boolean; onHud: (h: Hud) =>
       if (s.comboT <= 0) s.combo = 0;
     }
     s.shake = Math.max(0, s.shake - dt * 2);
+    if (s.honkCd > 0) s.honkCd -= dt;
+
+    // ---- selektör (F) + korna (H) ----
+    const flashPress = edge(k, "KeyF");
+    const hornPress = edge(k, "KeyH");
+    horn.setHeld(k.has("KeyH"));
+    if (flashPress) s.beamT = 0.18;
+    if (s.beamT > 0) s.beamT -= dt;
+    const hbTarget = k.has("KeyF") || s.beamT > 0 ? 1 : 0;
+    s.hb += (hbTarget - s.hb) * Math.min(1, dt * (hbTarget > s.hb ? 45 : 14));
+    highBeam.current = s.hb;
+    if (started && (flashPress || hornPress)) {
+      // the car right ahead in the player's lane signals and moves over
+      let best: TrafficCar | null = null;
+      let bestGap = 70;
+      for (let i = 0; i < cars.length; i++) {
+        const c = cars[i];
+        if (Math.abs(c.x - s.px) > 1.9) continue;
+        const gap = s.pz - c.z - c.halfL - PLAYER_HALF_L;
+        if (gap > -0.5 && gap < bestGap) {
+          bestGap = gap;
+          best = c;
+        }
+      }
+      if (best && best.yieldT <= 0 && best.laneT >= 1) {
+        const c = best;
+        const pref = c.lane + 1 < LANES ? 1 : -1; // prefer the slower (right) lane
+        const dir = laneFree(cars, c, c.lane + pref, s.px, s.pz) ? pref : laneFree(cars, c, c.lane - pref, s.px, s.pz) ? -pref : pref;
+        c.blink = dir;
+        c.blinkT = 3.4;
+        c.yieldT = 0.3 + rand() * 0.5;
+      }
+    }
 
     // floating origin: keep the player within one strip period of z = 0 so
     // the sky dome, stars and float precision all stay happy
@@ -212,15 +283,22 @@ function TrafficScene({ started, onHud }: { started: boolean; onHud: (h: Hud) =>
     const targetRpm = 1.2 + ((s.speed - lo) / (hi - lo)) * 5.6;
     rpmVis.current += (THREE.MathUtils.clamp(targetRpm, 0.9, 7.6) - rpmVis.current) * Math.min(1, 8 * dt);
 
+    const hb = s.hb;
     if (headlight.current) {
-      headlight.current.position.set(s.px + 0.0, 0.75, s.pz - 2.4);
-      headTarget.position.set(s.px + s.vx * 0.5, 0, s.pz - 45);
+      const hl = headlight.current;
+      hl.position.set(s.px + 0.0, 0.75, s.pz - 2.4);
+      hl.intensity = 420 + hb * 900;
+      hl.distance = 110 + hb * 130;
+      hl.angle = 0.42 + hb * 0.05;
+      headTarget.position.set(s.px + s.vx * 0.5, hb * 1.2, s.pz - 45 - hb * 45);
       headTarget.updateMatrixWorld();
     }
     if (beam.current) {
-      beam.current.position.set(s.px, 0.035, s.pz - 12.5);
+      beam.current.position.set(s.px, 0.035, s.pz - 12.5 - hb * 14);
       beam.current.rotation.set(-Math.PI / 2, 0, Math.PI - s.vx * 0.03);
+      beam.current.scale.set(1 + hb * 0.25, 1 + hb * 1.3, 1);
     }
+    if (beamMat.current) beamMat.current.opacity = 0.12 + hb * 0.2;
 
     // camera: driver's eye, with road-feel shake and lean into lane changes
     const nitro = (k.has("ShiftLeft") || k.has("ShiftRight")) && s.nitro > 0.02 && started;
@@ -286,23 +364,45 @@ function TrafficScene({ started, onHud }: { started: boolean; onHud: (h: Hud) =>
         c.brake = target < c.speed - 0.3 || (gapMin < 16 && leadSpeed < c.speed) ? 1 : Math.max(0, (c.brake ?? 0) - dt * 3);
         c.z -= c.speed * dt;
 
-        // overtake when stuck behind a slower car
-        if (c.laneT >= 1 && gapMin < 28 && leadSpeed < c.cruise - 3 && !heavy(c.type) && rand() < dt * 1.2) {
-          const dir = rand() < 0.5 ? -1 : 1;
-          for (const d of [dir, -dir]) {
-            const nl = c.lane + d;
-            if (nl < 0 || nl >= LANES) continue;
-            const nx = nl * LANE_W;
-            const blocked =
-              cars.some((o) => o !== c && Math.abs(o.x - nx) < 2.6 && Math.abs(o.z - c.z) < o.halfL + c.halfL + 8) ||
-              (Math.abs(s.px - nx) < 2.6 && Math.abs(s.pz - c.z) < c.halfL + 10);
-            if (!blocked) {
+        // flashed / honked at: after a reaction delay, signal and move over
+        if (c.yieldT > 0 && c.laneT >= 1) {
+          c.yieldT -= dt;
+          if (c.yieldT <= 0) {
+            const d = c.blink || 1;
+            const nl = laneFree(cars, c, c.lane + d, s.px, s.pz) ? c.lane + d : laneFree(cars, c, c.lane - d, s.px, s.pz) ? c.lane - d : -1;
+            if (nl >= 0) {
+              c.blink = nl - c.lane;
               c.targetLane = nl;
               c.laneT = 0;
-              break;
-            }
+              c.blinkT = Math.max(c.blinkT, 2.6);
+            } else if (c.blinkT > 0.6) c.yieldT = 0.25; // wait for a gap
           }
         }
+        // overtake when stuck behind a slower car
+        if (c.laneT >= 1 && c.yieldT <= 0 && gapMin < 28 && leadSpeed < c.cruise - 3 && !heavy(c.type) && rand() < dt * 1.2) {
+          const dir = rand() < 0.5 ? -1 : 1;
+          const nl = laneFree(cars, c, c.lane + dir, s.px, s.pz) ? c.lane + dir : laneFree(cars, c, c.lane - dir, s.px, s.pz) ? c.lane - dir : -1;
+          if (nl >= 0) {
+            c.targetLane = nl;
+            c.laneT = 0;
+            c.blink = nl - c.lane;
+            c.blinkT = 2.6;
+          }
+        }
+        if (c.blinkT > 0) {
+          c.blinkT -= dt;
+          if (c.blinkT <= 0) c.blink = 0;
+        }
+        // honking back (and flashing) at the player after a close cut
+        if (c.honkWait > 0) {
+          c.honkWait -= dt;
+          if (c.honkWait <= 0) {
+            horn.honkBack(0, c.honkDur);
+            c.flashT = c.honkDur + 0.15;
+          }
+        }
+        if (c.flashT > 0) c.flashT -= dt;
+        c.flash = c.flashT > 0 ? 1 : 0;
         if (c.laneT < 1) {
           c.laneT = Math.min(1, c.laneT + dt * 0.45);
           const e = c.laneT * c.laneT * (3 - 2 * c.laneT);
@@ -318,7 +418,7 @@ function TrafficScene({ started, onHud }: { started: boolean; onHud: (h: Hud) =>
         c.x = c.lane * LANE_W;
         c.cruise = heavy(c.type) ? 14 + rand() * 5 : 16 + rand() * 12;
         c.speed = c.cruise;
-        c.color.set(heavy(c.type) && rand() < 0.6 ? "#e8e8e4" : TRAFFIC_PAINTS[Math.floor(rand() * TRAFFIC_PAINTS.length)]);
+        c.color.set(heavy(c.type) && rand() < 0.6 ? "#bdbeb9" : TRAFFIC_PAINTS[Math.floor(rand() * TRAFFIC_PAINTS.length)]);
         let z = s.pz - 420 - rand() * 320;
         for (let tries = 0; tries < 8; tries++) {
           const conflict = cars.some((o) => o !== c && Math.abs(o.x - c.x) < 2.4 && Math.abs(o.z - z) < o.halfL + c.halfL + 14);
@@ -327,6 +427,8 @@ function TrafficScene({ started, onHud }: { started: boolean; onHud: (h: Hud) =>
         }
         c.z = z;
         c.passed = false;
+        c.yieldT = c.blinkT = c.honkWait = c.flashT = 0;
+        c.blink = c.flash = 0;
       }
       // near-miss / collision
       const dz = c.z - s.pz;
@@ -357,6 +459,12 @@ function TrafficScene({ started, onHud }: { started: boolean; onHud: (h: Hud) =>
           s.nitro = Math.min(1, s.nitro + 0.12 + closeness * 0.1);
           banner(closeness > 0.6 ? `MAKAS! +${pts}` : `+${pts}`);
           c.passed = true;
+          // a driver you cut off very closely sometimes honks back
+          if (closeness > 0.55 && s.honkCd <= 0 && rand() < 0.3) {
+            c.honkWait = 0.15 + rand() * 0.3;
+            c.honkDur = 0.22 + rand() * 0.35;
+            s.honkCd = 5;
+          }
         }
       }
       c.rotY = Math.PI + (c.laneT < 1 ? (c.lane - c.targetLane) * 0.06 * Math.sin(c.laneT * Math.PI) : 0);
@@ -463,11 +571,11 @@ function TrafficScene({ started, onHud }: { started: boolean; onHud: (h: Hud) =>
       <primitive object={headTarget} />
       <mesh ref={beam}>
         <planeGeometry args={[9, 22]} />
-        <meshBasicMaterial map={beamTex} color="#c9d8ff" transparent opacity={0.12} blending={THREE.AdditiveBlending} depthWrite={false} />
+        <meshBasicMaterial ref={beamMat} map={beamTex} color="#c9d8ff" transparent opacity={0.12} blending={THREE.AdditiveBlending} depthWrite={false} />
       </mesh>
 
       <TrafficFleet cars={world.fleet} />
-      <Cockpit steerRef={steerVis} speedRef={kmhVis} rpmRef={rpmVis} color="#b4530a" visible={!debugCam} />
+      <Cockpit steerRef={steerVis} speedRef={kmhVis} rpmRef={rpmVis} highBeamRef={highBeam} color="#b4530a" visible={!debugCam} />
       {debugCam && <Car ref={playerCar} color="#b4530a" headlights={false} underglow={false} />}
       <Particles ref={sparks} count={300} gravity={-12} drag={1} blending={THREE.AdditiveBlending} />
       <WorldEffects preset="night" />
@@ -502,7 +610,7 @@ export default function Traffic({ started }: { started: boolean }) {
       {hud.bannerId > 0 && <HudBanner keyId={hud.bannerId} text={hud.bannerText} accent={ACCENT} />}
       {hud.crashed && <HudModal title="Çarptın!" accent="#e11d48" lines={["Kombo sıfırlandı, hız düştü"]} tone="danger" />}
       {started && hud.score === 0 && hud.speed < 25 && (
-        <HudCenter text="W: gaz · A/D: şerit · Shift: nitro · Arabalara yakın geç, çarpma!" />
+        <HudCenter text="W: gaz · A/D: şerit · Shift: nitro · F: selektör · H: korna · Arabalara yakın geç, çarpma!" />
       )}
     </div>
   );

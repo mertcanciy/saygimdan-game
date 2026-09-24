@@ -6,7 +6,7 @@
 
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
-import { useFrame, useThree } from "@react-three/fiber";
+import { useFrame } from "@react-three/fiber";
 import { buildCar, SLOTS, type CarGeometry, type CarType, type Slot } from "./carGeometry";
 import { beamTexture, carMaterials, carMaterialsUnlit, flareTexture } from "./carMaterials";
 
@@ -20,6 +20,10 @@ export interface FleetCar {
   visible: boolean;
   /** 0..1 extra taillight brightness (braking) */
   brake?: number;
+  /** turn signal: +1 = car's right, -1 = car's left, 0 / undefined = off */
+  blink?: number;
+  /** 0..1 headlight flash (high beams) */
+  flash?: number;
 }
 
 const _m = new THREE.Matrix4();
@@ -30,6 +34,7 @@ const _q = new THREE.Quaternion();
 const _up = new THREE.Vector3(0, 1, 0);
 const _s = new THREE.Vector3(1, 1, 1);
 const _p = new THREE.Vector3();
+const _size = new THREE.Vector2();
 
 const FLARE_VERT = /* glsl */ `
   attribute vec3 aDir;
@@ -81,7 +86,6 @@ export default function TrafficFleet({
   lights?: boolean;
 }) {
   const mats = lights ? carMaterials() : carMaterialsUnlit();
-  const { size, viewport } = useThree();
 
   const groups = useMemo<TypeGroup[]>(() => {
     const map = new Map<CarType, number[]>();
@@ -105,7 +109,7 @@ export default function TrafficFleet({
     let n = 0;
     for (const c of cars) {
       const g = buildCar(c.type, 0);
-      n += g.headLights.length + g.tailLights.length;
+      n += g.headLights.length + g.tailLights.length + 2; // + front / rear turn signal
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(n * 3), 3));
@@ -161,10 +165,22 @@ export default function TrafficFleet({
     uScale.current = flareData.mat.uniforms.uScale as { value: number };
   }, [flareData]);
 
-  useFrame(({ camera }) => {
-    const cam = camera as THREE.PerspectiveCamera;
-    const dpr = size.width > 0 ? viewport.dpr : 1;
-    if (uScale.current) uScale.current.value = (size.height * dpr * 0.5) / Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2);
+  // flare size depends on the target being drawn (main view or the small
+  // rear-view mirror), so it is set right before each draw of the points
+  const onFlaresRender = useMemo(
+    () => (renderer: THREE.WebGLRenderer, _scene: THREE.Scene, camera: THREE.Camera) => {
+      const u = uScale.current;
+      if (!u) return;
+      const rt = renderer.getRenderTarget();
+      const h = rt ? rt.height : renderer.getDrawingBufferSize(_size).y;
+      // projectionMatrix[5] = 1 / tan(fov / 2)
+      u.value = h * 0.5 * camera.projectionMatrix.elements[5];
+    },
+    []
+  );
+
+  useFrame(({ clock }) => {
+    const tBlink = clock.elapsedTime * 1.6;
 
     for (let gi = 0; gi < groups.length; gi++) {
       const g = groups[gi];
@@ -205,13 +221,15 @@ export default function TrafficFleet({
       const s = Math.sin(c.rotY);
       const co = Math.cos(c.rotY);
       const brake = c.brake ?? 0;
+      const fl = c.flash ?? 0;
+      const hk = c.visible ? 1 + fl * 1.6 : 0;
       for (const hl of geo.headLights) {
         const lx = hl.x;
         const lz = hl.z + 0.12;
         pa.setXYZ(f, c.x + co * lx + s * lz, c.y + hl.y, c.z - s * lx + co * lz);
         da.setXYZ(f, s, 0, co);
-        ca.setXYZ(f, c.visible ? 1.0 : 0, c.visible ? 0.96 : 0, c.visible ? 0.9 : 0);
-        sa.setX(f, geo.spec.W > 2.2 ? 1.5 : 1.25);
+        ca.setXYZ(f, hk, hk * 0.96, hk * 0.9);
+        sa.setX(f, (geo.spec.W > 2.2 ? 1.5 : 1.25) * (1 + fl * 0.8));
         f++;
       }
       for (const tl of geo.tailLights) {
@@ -224,9 +242,41 @@ export default function TrafficFleet({
         sa.setX(f, 0.9 + brake * 0.5);
         f++;
       }
+      // turn signals: next to the outermost head / tail lamp on the signalled
+      // side (car's right = local -X), slightly outboard and above it
+      {
+        const b = c.blink ?? 0;
+        const on = c.visible && b !== 0 && (tBlink + i * 0.37) % 1 < 0.55;
+        const k = on ? 2.4 : 0;
+        const side = b === 0 ? 1 : -b;
+        for (let pass = 0; pass < 2; pass++) {
+          const lamps = pass === 0 ? geo.headLights : geo.tailLights;
+          let lx = side * (geo.spec.W / 2 - 0.1);
+          let ly = pass === 0 ? 0.7 : 0.85;
+          let lz = pass === 0 ? geo.spec.L / 2 : -geo.spec.L / 2;
+          let best = -1;
+          for (const lp of lamps) {
+            if (lp.x * side > 0 && Math.abs(lp.x) > best) {
+              best = Math.abs(lp.x);
+              lx = lp.x;
+              ly = lp.y;
+              lz = lp.z;
+            }
+          }
+          lx += side * 0.06;
+          ly += pass === 0 ? 0.02 : -0.02;
+          lz += pass === 0 ? 0.16 : -0.16;
+          pa.setXYZ(f, c.x + co * lx + s * lz, c.y + ly, c.z - s * lx + co * lz);
+          if (pass === 0) da.setXYZ(f, s, 0, co);
+          else da.setXYZ(f, -s, 0, -co);
+          ca.setXYZ(f, k * 1.25, k * 0.42, 0);
+          sa.setX(f, 1.5);
+          f++;
+        }
+      }
       if (bm) {
         if (c.visible) {
-          const len = 16;
+          const len = 16 + fl * 10;
           const wid = geo.spec.W * 3.2;
           const off = geo.spec.L / 2 + len / 2 - 0.3;
           _q.setFromAxisAngle(_up, c.rotY);
@@ -276,7 +326,9 @@ export default function TrafficFleet({
           <instancedMesh ref={tailRef} args={[beamGeo, tailPoolMat, cars.length]} frustumCulled={false} renderOrder={2} />
         </>
       )}
-      {flares && <points geometry={flareData.geo} material={flareData.mat} frustumCulled={false} renderOrder={3} />}
+      {flares && (
+        <points geometry={flareData.geo} material={flareData.mat} frustumCulled={false} renderOrder={3} onBeforeRender={onFlaresRender} />
+      )}
     </group>
   );
 }

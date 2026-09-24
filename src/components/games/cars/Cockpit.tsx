@@ -10,12 +10,22 @@
 import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { useFrame, useThree } from "@react-three/fiber";
+import { useFBO } from "@react-three/drei";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { buildCar } from "./carGeometry";
 import { carMaterials, makePaint } from "./carMaterials";
 
 /** Driver eye point in car coordinates (car faces +Z, driver sits on +X). */
 const EYE = new THREE.Vector3(0.36, 1.09, -0.6);
+
+/** Rear-view mirror glass size (m) and its render-target resolution. */
+const MIRROR_W = 0.22;
+const MIRROR_H = 0.052;
+const MIRROR_RT_W = 512;
+const MIRROR_RT_H = Math.round((MIRROR_RT_W * MIRROR_H) / MIRROR_W);
+/** Mirror camera, in camera-local space: on the car's centre line, above the rear seats. */
+const MIRROR_CAM_OFFSET = new THREE.Vector3(EYE.x, 0.1, 1.1);
+const _mirrorPos = new THREE.Vector3();
 
 function dialTexture(kind: "speed" | "rpm"): THREE.CanvasTexture {
   const S = 256;
@@ -67,31 +77,30 @@ function dialTexture(kind: "speed" | "rpm"): THREE.CanvasTexture {
   return t;
 }
 
-function mirrorTexture(): THREE.CanvasTexture {
-  const W = 256;
-  const H = 64;
+/** Dashboard tell-tale: the blue high-beam symbol (white, tinted by the material). */
+function highBeamIcon(): THREE.CanvasTexture {
+  const S = 64;
   const c = document.createElement("canvas");
-  c.width = W;
-  c.height = H;
+  c.width = c.height = S;
   const g = c.getContext("2d")!;
-  const sky = g.createLinearGradient(0, 0, 0, H);
-  sky.addColorStop(0, "#141b30");
-  sky.addColorStop(0.55, "#2a2436");
-  sky.addColorStop(0.56, "#15161a");
-  sky.addColorStop(1, "#0c0c0e");
-  g.fillStyle = sky;
-  g.fillRect(0, 0, W, H);
-  // far city glow + following headlights
-  for (let i = 0; i < 14; i++) {
-    g.fillStyle = `rgba(255,${200 + (i % 3) * 20},150,0.5)`;
-    g.fillRect(i * 19 + 3, 26 + (i % 4), 5, 3);
-  }
-  for (const [x, y, r] of [[96, 44, 9], [118, 44, 9], [186, 40, 5], [197, 40, 5]] as const) {
-    const gr = g.createRadialGradient(x, y, 0, x, y, r * 2.2);
-    gr.addColorStop(0, "rgba(255,255,255,0.95)");
-    gr.addColorStop(1, "rgba(200,220,255,0)");
-    g.fillStyle = gr;
-    g.fillRect(x - r * 3, y - r * 3, r * 6, r * 6);
+  g.clearRect(0, 0, S, S);
+  g.fillStyle = "#fff";
+  g.strokeStyle = "#fff";
+  g.lineWidth = 5;
+  g.lineCap = "round";
+  // lamp body: a "D" facing left
+  g.beginPath();
+  g.moveTo(34, 14);
+  g.bezierCurveTo(62, 14, 62, 50, 34, 50);
+  g.closePath();
+  g.fill();
+  // straight beams (high beam = horizontal)
+  for (let i = 0; i < 5; i++) {
+    const y = 17 + i * 7.5;
+    g.beginPath();
+    g.moveTo(6, y);
+    g.lineTo(24, y);
+    g.stroke();
   }
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
@@ -203,8 +212,14 @@ export default function Cockpit({
   color = "#b45309",
   maxSpeedKmh = 260,
   visible = true,
+  mirror = true,
+  highBeamRef,
 }: {
   visible?: boolean;
+  /** render the rear-view mirror live (a second, small scene render per frame) */
+  mirror?: boolean;
+  /** 0..1 high-beam tell-tale brightness */
+  highBeamRef?: React.RefObject<number>;
   steerRef: React.RefObject<number>;
   /** km/h */
   speedRef: React.RefObject<number>;
@@ -219,6 +234,20 @@ export default function Cockpit({
   const wheel = useRef<THREE.Group>(null);
   const needleS = useRef<THREE.Group>(null);
   const needleR = useRef<THREE.Group>(null);
+  const body = useRef<THREE.Group>(null);
+  const mirrorFrame = useRef(0);
+
+  // live rear-view mirror: a small camera looking backwards renders the scene
+  // (without the cockpit) into a texture shown, mirrored, on the glass
+  const mirrorRT = useFBO(MIRROR_RT_W, MIRROR_RT_H, { samples: 2 });
+  const mirrorCam = useMemo(() => new THREE.PerspectiveCamera(13, MIRROR_W / MIRROR_H, 0.3, 1600), []);
+  const mirrorGeo = useMemo(() => {
+    const g = new THREE.PlaneGeometry(MIRROR_W, MIRROR_H);
+    // flip horizontally, like a real mirror
+    const uv = g.getAttribute("uv") as THREE.BufferAttribute;
+    for (let i = 0; i < uv.count; i++) uv.setX(i, 1 - uv.getX(i));
+    return g;
+  }, []);
 
   useEffect(() => {
     scene.add(camera);
@@ -284,10 +313,7 @@ export default function Cockpit({
         return new THREE.MeshStandardMaterial({ map: t, emissiveMap: t, emissive: "#ffffff", emissiveIntensity: 0.8, roughness: 0.15 });
       })(),
       needle: new THREE.MeshBasicMaterial({ color: "#ff5a1f", toneMapped: false }),
-      mirrorGlass: (() => {
-        const t = mirrorTexture();
-        return new THREE.MeshStandardMaterial({ map: t, emissiveMap: t, emissive: "#ffffff", emissiveIntensity: 0.55, roughness: 0.1, metalness: 0.2 });
-      })(),
+      highBeam: new THREE.MeshBasicMaterial({ map: highBeamIcon(), color: "#0a1224", transparent: true, depthWrite: false, toneMapped: false }),
     }),
     []
   );
@@ -335,13 +361,40 @@ export default function Cockpit({
     // dial sweep: 135° .. 405° (canvas angles, clockwise on screen)
     if (needleS.current) needleS.current.rotation.z = -(Math.PI * 0.75 + sp * Math.PI * 1.5);
     if (needleR.current) needleR.current.rotation.z = -(Math.PI * 0.75 + rpm * Math.PI * 1.5);
+    const hb = highBeamRef?.current ?? 0;
+    interior.highBeam.color.setRGB(0.035 + hb * 0.3, 0.05 + hb * 0.75, 0.1 + hb * 2.6);
   });
+
+  // mirror pass: after the simulation / fleet updates (priority <= 0), before
+  // the post-processing composer (priority 1) draws the main view
+  useFrame(({ gl, scene, camera: cam }, dt) => {
+    const b = body.current;
+    if (!mirror || !visible || !b) return;
+    // on a struggling GPU refresh the mirror every other frame
+    mirrorFrame.current++;
+    if (dt > 1 / 40 && mirrorFrame.current % 2 === 1) return;
+    cam.updateMatrixWorld();
+    _mirrorPos.copy(MIRROR_CAM_OFFSET).applyMatrix4(cam.matrixWorld);
+    mirrorCam.position.copy(_mirrorPos);
+    mirrorCam.quaternion.copy(cam.quaternion);
+    // turn around, then undo the doubled look-down pitch and aim slightly down
+    mirrorCam.rotateY(Math.PI);
+    mirrorCam.rotateX(-0.075);
+    mirrorCam.updateMatrixWorld();
+    const prev = gl.getRenderTarget();
+    b.visible = false;
+    gl.setRenderTarget(mirrorRT);
+    gl.render(scene, mirrorCam);
+    gl.setRenderTarget(prev);
+    b.visible = true;
+  }, 0.5);
 
   // car group: rotate so car +Z points along camera -Z, eye at the origin
   return (
     <group ref={root} visible={visible}>
       <group rotation={[0, Math.PI, 0]} position={[EYE.x, -EYE.y, EYE.z]}>
-        <group>
+        {/* everything but the light, so hiding it for the mirror pass keeps the light count stable */}
+        <group ref={body}>
           {/* exterior shell: hood, fenders, mirrors */}
           <mesh geometry={shell} material={paint} />
           {car.body.trim && <mesh geometry={car.body.trim} material={mats.trim} />}
@@ -384,6 +437,10 @@ export default function Cockpit({
                 </mesh>
               </group>
             ))}
+            {/* high-beam tell-tale inside the rev counter face */}
+            <mesh position={[0.105, 0.029, 0.003]} material={interior.highBeam}>
+              <planeGeometry args={[0.024, 0.024]} />
+            </mesh>
           </group>
 
           {/* infotainment screen */}
@@ -423,17 +480,17 @@ export default function Cockpit({
             <mesh material={interior.leather}>
               <boxGeometry args={[0.24, 0.068, 0.03]} />
             </mesh>
-            <mesh position={[0, 0, -0.016]} rotation={[0, Math.PI, 0]} material={interior.mirrorGlass}>
-              <planeGeometry args={[0.22, 0.052]} />
+            <mesh position={[0, 0, -0.016]} rotation={[0, Math.PI, 0]} geometry={mirrorGeo}>
+              <meshBasicMaterial map={mirrorRT.texture} color="#c4c8d0" />
             </mesh>
             <mesh position={[0, 0.06, 0.02]} material={interior.leather}>
               <boxGeometry args={[0.02, 0.07, 0.02]} />
             </mesh>
           </group>
 
-          {/* soft instrument glow on the driver side */}
-          <pointLight position={[0.2, 1.05, -0.2]} color="#dfe6ff" intensity={0.5} distance={1.6} decay={2} />
         </group>
+        {/* soft instrument glow on the driver side */}
+        <pointLight position={[0.2, 1.05, -0.2]} color="#dfe6ff" intensity={0.5} distance={1.6} decay={2} />
       </group>
     </group>
   );

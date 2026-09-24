@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useThree } from "@react-three/fiber";
 import type { RefObject } from "react";
+import { isTouchDevice } from "./input";
 
 export interface PointerLook {
   yaw: RefObject<number>;
@@ -30,11 +31,45 @@ export function usePointerLook(
   const pitch = useRef(-0.15);
   const mouseDown = useRef(false);
   const stick = useRef({ x: 0, y: 0 });
-  const [locked, setLocked] = useState(false);
+  // on touch screens dragging the canvas is the "mouse": treat it as always captured
+  const [locked, setLocked] = useState(() => isTouchDevice());
 
   useEffect(() => {
     const el = gl.domElement;
+    const touch = isTouchDevice();
+    // touch drag = mouse look (one finger that started on the canvas)
+    let dragId: number | null = null;
+    let lastX = 0;
+    let lastY = 0;
+    const TOUCH_GAIN = 2.2;
+    const onPointerDown = (e: PointerEvent) => {
+      if (e.pointerType === "mouse") {
+        if (e.button === 0) mouseDown.current = true;
+        return;
+      }
+      if (dragId !== null) return;
+      dragId = e.pointerId;
+      lastX = e.clientX;
+      lastY = e.clientY;
+    };
+    const onPointerMove = (e: PointerEvent) => {
+      if (e.pointerId !== dragId) return;
+      const dx = e.clientX - lastX;
+      const dy = e.clientY - lastY;
+      lastX = e.clientX;
+      lastY = e.clientY;
+      yaw.current -= dx * sensitivity * TOUCH_GAIN;
+      pitch.current = Math.max(-pitchClamp, Math.min(pitchClamp, pitch.current - dy * sensitivity * TOUCH_GAIN));
+    };
+    const onPointerEnd = (e: PointerEvent) => {
+      if (e.pointerType === "mouse") {
+        if (e.button === 0) mouseDown.current = false;
+        return;
+      }
+      if (e.pointerId === dragId) dragId = null;
+    };
     const onClick = () => {
+      if (touch) return;
       if (enableLock && document.pointerLockElement !== el) {
         el.requestPointerLock?.();
       }
@@ -53,25 +88,23 @@ export function usePointerLook(
       stick.current.x = Math.max(-1, Math.min(1, nx));
       stick.current.y = Math.max(-1, Math.min(1, ny));
     };
-    const onDown = (e: MouseEvent) => {
-      if (e.button === 0) mouseDown.current = true;
-    };
-    const onUp = (e: MouseEvent) => {
-      if (e.button === 0) mouseDown.current = false;
-    };
     const onLockChange = () => {
-      setLocked(document.pointerLockElement === el);
+      if (!touch) setLocked(document.pointerLockElement === el);
     };
     el.addEventListener("click", onClick);
     window.addEventListener("mousemove", onMove);
-    el.addEventListener("mousedown", onDown);
-    window.addEventListener("mouseup", onUp);
+    el.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerEnd);
+    window.addEventListener("pointercancel", onPointerEnd);
     document.addEventListener("pointerlockchange", onLockChange);
     return () => {
       el.removeEventListener("click", onClick);
       window.removeEventListener("mousemove", onMove);
-      el.removeEventListener("mousedown", onDown);
-      window.removeEventListener("mouseup", onUp);
+      el.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerEnd);
+      window.removeEventListener("pointercancel", onPointerEnd);
       document.removeEventListener("pointerlockchange", onLockChange);
       if (document.pointerLockElement === el) document.exitPointerLock();
     };

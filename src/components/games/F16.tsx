@@ -886,7 +886,7 @@ export default function F16({ started }: { started: boolean }) {
       {started && !photoMode && !hud.crashed && !locked && (
         <HudCenter text="Ekrana tıkla, fareyle nişan al: uçak beyaz halkaya döner. Esc ile bırak." />
       )}
-      {started && !photoMode && !hud.crashed && <HudHint text="C: kokpit · halkalar sokak aralarında · binalara dikkat" />}
+      {started && !photoMode && !hud.crashed && <HudHint text="C: kokpit · halkalar sokak aralarında · binalara dikkat" touchText="Ekranı sürükle: nişan al" />}
     </div>
   );
 }

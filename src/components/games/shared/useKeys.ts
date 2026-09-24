@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import type { RefObject } from "react";
+import { virtualKeys, releaseAllVirtual } from "./input";
 
 const PREVENT = new Set([
   "Space",
@@ -11,9 +12,16 @@ const PREVENT = new Set([
   "ArrowRight",
 ]);
 
+/** Keyboard keys, merged with the on-screen touch controls' virtual keys. */
+class InputKeys extends Set<string> {
+  has(code: string): boolean {
+    return super.has(code) || virtualKeys.has(code);
+  }
+}
+
 /** Set of currently-pressed KeyboardEvent.code values in a ref (no re-renders). */
 export function useKeys(): RefObject<Set<string>> {
-  const keys = useRef<Set<string>>(new Set());
+  const keys = useRef<Set<string>>(new InputKeys());
 
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -25,7 +33,10 @@ export function useKeys(): RefObject<Set<string>> {
     const up = (e: KeyboardEvent) => {
       keys.current.delete(e.code);
     };
-    const clear = () => keys.current.clear();
+    const clear = () => {
+      keys.current.clear();
+      releaseAllVirtual();
+    };
     window.addEventListener("keydown", down);
     window.addEventListener("keyup", up);
     window.addEventListener("blur", clear);

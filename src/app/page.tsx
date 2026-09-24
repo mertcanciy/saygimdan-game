@@ -271,7 +271,7 @@ function SignIn() {
             </div>
           </div>
         ) : (
-          <form onSubmit={submit} noValidate className="self-end">
+          <form onSubmit={submit} noValidate className="self-end" suppressHydrationWarning>
             <Field
               id="name"
               label="Adın"
@@ -325,7 +325,9 @@ function Field({
       <label htmlFor={id} className="block text-[15px] text-muted-ink">
         {label}
       </label>
+      {/* browsers' autofill (e.g. Chrome on iOS) adds attributes before React hydrates */}
       <input
+        suppressHydrationWarning
         id={id}
         type={type}
         value={value}
