@@ -19,18 +19,18 @@ import type { BoneName, HeroRig } from "./heroModel";
  * No allocations per frame.
  */
 
-export const Mode = { Ground: 0, Swing: 1, Air: 2 } as const;
+export const Mode = { Ground: 0, Swing: 1, Air: 2, WallCrawl: 3, WallRun: 4, Zip: 5 } as const;
 export type Mode = (typeof Mode)[keyof typeof Mode];
 
 export interface AnimInput {
   mode: Mode;
-  /** horizontal speed m/s */
+  /** horizontal speed m/s (on walls: speed along the wall) */
   speed: number;
   /** vertical speed m/s */
   vy: number;
   /** downward speed at the last touchdown (m/s) — read on landing */
   impact: number;
-  /** web anchor (world) while swinging */
+  /** web anchor (world) while swinging / zip target while zipping */
   anchor: THREE.Vector3 | null;
   /** which hand holds the web: 0 = left, 1 = right */
   hand: 0 | 1;
@@ -40,6 +40,8 @@ export interface AnimInput {
   swingPhase: number;
   /** flip progress 0..1, or <0 when not flipping */
   flip: number;
+  /** which trick the flip is: 0 = front somersault, 1 = corkscrew (twist about the body axis) */
+  trick: number;
   dive: boolean;
   /** desired body up / forward (world, unit) */
   up: THREE.Vector3;
@@ -117,8 +119,10 @@ const LOCO: [number, number, number][] = [
 const RISE_T = 0.42;
 
 /* ---------- procedural layers ---------- */
-const L = { swing: 0, flip: 1, spread: 2, dive: 3, aimL: 4, aimR: 5 } as const;
-const NL = 6;
+const L = { swing: 0, flip: 1, spread: 2, dive: 3, aimL: 4, aimR: 5, crawl: 6, zip: 7, thwipL: 8, thwipR: 9 } as const;
+const NL = 10;
+/** metres climbed per full crawl cycle (two hand placements) */
+const CRAWL_CYCLE = 1.35;
 
 // scratch
 const _m = new THREE.Matrix4();
@@ -140,6 +144,10 @@ const F = new THREE.Vector3();
 const S = new THREE.Vector3();
 const _tmp = new THREE.Vector3();
 const _prevFwd = new THREE.Vector3();
+const _hf = new THREE.Vector3();
+const _lat = new THREE.Vector3();
+const _pn = new THREE.Vector3();
+const _kn = new THREE.Vector3();
 
 const smooth = (a: number, b: number, t: number) => {
   const x = Math.min(1, Math.max(0, (t - a) / (b - a)));
@@ -196,6 +204,7 @@ export class HeroAnimator {
   private springs: Record<LimbKey, DirSpring>;
   private swingPhaseS = new Float32Array(1);
   private swingPhaseV = new Float32Array(1);
+  private crawlPhase = 0;
   /** world-space palm positions, valid after update() */
   palmWorld: [THREE.Vector3, THREE.Vector3] = [new THREE.Vector3(), new THREE.Vector3()];
 
@@ -316,9 +325,17 @@ export class HeroAnimator {
           this.wt[os] = k;
         }
       }
+    } else if (inp.mode === Mode.WallRun) {
+      cycle = this.setLocoTargets(inp.speed);
+    } else if (inp.mode === Mode.WallCrawl) {
+      this.wt[C.idle] = 1;
+      this.lt[L.crawl] = 1;
     } else if (inp.mode === Mode.Swing) {
       this.wt[C.air] = 1;
       this.lt[L.swing] = 1;
+    } else if (inp.mode === Mode.Zip) {
+      this.wt[C.air] = 1;
+      this.lt[L.zip] = 1;
     } else {
       const rise = smooth(-3, 6, inp.vy);
       this.wt[C.rise] = rise;
@@ -327,8 +344,11 @@ export class HeroAnimator {
       else if (inp.dive) this.lt[L.dive] = 1;
       else this.lt[L.spread] = smooth(9, 22, -inp.vy);
     }
-    // arm aim towards the anchor (web hand)
-    if (inp.mode === Mode.Swing && inp.anchor) this.lt[inp.hand === 0 ? L.aimL : L.aimR] = 1;
+    // arm aim towards the anchor (web hand), fingers in the "thwip" shape
+    if ((inp.mode === Mode.Swing || inp.mode === Mode.Zip) && inp.anchor) {
+      this.lt[inp.hand === 0 ? L.aimL : L.aimR] = 1;
+      this.lt[inp.hand === 0 ? L.thwipL : L.thwipR] = 1;
+    }
 
     /* ---------- weights: critically damped, normalised ---------- */
     let sum = 0;
@@ -347,7 +367,18 @@ export class HeroAnimator {
     }
     for (let i = 0; i < NL; i++) {
       const up = this.lt[i] > this.lw[i];
-      const hl = i === L.aimL || i === L.aimR ? (up ? 0.045 : 0.14) : i === L.flip ? 0.05 : up ? 0.08 : 0.12;
+      const hl =
+        i === L.aimL || i === L.aimR || i === L.thwipL || i === L.thwipR
+          ? up
+            ? 0.045
+            : 0.14
+          : i === L.flip
+            ? 0.05
+            : i === L.crawl
+              ? 0.09
+              : up
+                ? 0.08
+                : 0.12;
       springStep(this.lw, this.lwv, i, this.lt[i], hl, dt);
       this.lw[i] = Math.min(1, Math.max(0, this.lw[i]));
     }
@@ -374,14 +405,15 @@ export class HeroAnimator {
     /* ---------- body orientation (two-stage slerp → C1 continuous) ---------- */
     // run lean: forward with speed, bank into turns
     const fwdLen = Math.hypot(inp.fwd.x, inp.fwd.z);
-    if (inp.mode === Mode.Ground && fwdLen > 0.5) {
+    const runLike = inp.mode === Mode.Ground || inp.mode === Mode.WallRun;
+    if (runLike && fwdLen > 0.5) {
       const cross = _prevFwd.x * inp.fwd.z - _prevFwd.z * inp.fwd.x;
       const dotp = _prevFwd.x * inp.fwd.x + _prevFwd.z * inp.fwd.z;
       const yr = dt > 0 ? Math.atan2(cross, dotp) / dt : 0;
       this.yawRate += (yr - this.yawRate) * (1 - Math.exp(-10 * dt));
     } else this.yawRate *= Math.exp(-10 * dt);
     _prevFwd.copy(inp.fwd);
-    const ground = inp.mode === Mode.Ground ? 1 : 0;
+    const ground = runLike ? 1 : 0;
     const leanF = ground * Math.min(0.22, inp.speed * 0.012);
     const bank = ground * THREE.MathUtils.clamp(-this.yawRate * inp.speed * 0.025, -0.35, 0.35);
     springStep(this.lean, this.leanV, 0, leanF, 0.15, dt);
@@ -413,7 +445,8 @@ export class HeroAnimator {
       const e = f < 0.5 ? 4 * f * f * f : 1 - Math.pow(-2 * f + 2, 3) / 2;
       this.flipAngle = e * Math.PI * 2;
     } else this.flipAngle = 0;
-    rig.flip.quaternion.setFromAxisAngle(_x.set(1, 0, 0), this.flipAngle);
+    if (inp.trick === 1) rig.flip.quaternion.setFromAxisAngle(_x.set(0, 1, 0), this.flipAngle);
+    else rig.flip.quaternion.setFromAxisAngle(_x.set(1, 0, 0), this.flipAngle);
     rig.root.updateMatrixWorld(true);
 
     /* ---------- procedural layers ---------- */
@@ -463,6 +496,68 @@ export class HeroAnimator {
       }
     }
 
+    // wall crawl: frog-legged diagonal gait (left hand + right foot, then the
+    // other pair). Body frame here: U = climbing direction, F = into the wall.
+    this.crawlPhase = (this.crawlPhase + (dt * inp.speed) / CRAWL_CYCLE) % 1;
+    const wcr = this.lw[L.crawl];
+    if (wcr > 0.01) {
+      const moving = smooth(0.2, 1.2, inp.speed);
+      for (let side = 0; side < 2; side++) {
+        const left = side === 0;
+        const sg = left ? 1 : -1;
+        // arm and opposite leg share a phase
+        const pa = (this.crawlPhase + (left ? 0 : 0.5)) * Math.PI * 2;
+        const pl = pa + Math.PI;
+        // reach: +1 fully extended up the wall, −1 pulled down to the hip; lift: limb off the wall
+        const ra = Math.cos(pa) * moving + (1 - moving) * (left ? 0.35 : -0.15);
+        const la = Math.max(0, Math.sin(pa)) * moving;
+        const rl = Math.cos(pl) * moving + (1 - moving) * (left ? -0.2 : 0.3);
+        const ll = Math.max(0, Math.sin(pl)) * moving;
+        const ua = left ? b.upperarm_l : b.upperarm_r;
+        const lo = left ? b.lowerarm_l : b.lowerarm_r;
+        const ha = left ? b.hand_l : b.hand_r;
+        _dir.copy(S).multiplyScalar(0.8 * sg).addScaledVector(U, 0.2 + 0.55 * ra).addScaledVector(F, 0.3 - 0.55 * la);
+        aim(ua, lo, _dir.normalize(), wcr);
+        _dir.copy(U).multiplyScalar(0.45 + 0.4 * ra).addScaledVector(F, 0.75 - 0.4 * la).addScaledVector(S, 0.25 * sg);
+        aim(lo, ha, _dir.normalize(), wcr);
+        _dir.copy(F).multiplyScalar(0.8).addScaledVector(U, 0.5);
+        aim(ha, left ? b.middle_01_l : b.middle_01_r, _dir.normalize(), wcr * 0.8);
+        const th = left ? b.thigh_l : b.thigh_r;
+        const ca = left ? b.calf_l : b.calf_r;
+        const ft = left ? b.foot_l : b.foot_r;
+        // knees wide and high, feet tucked under the hips against the wall
+        _dir.copy(S).multiplyScalar(0.75 * sg).addScaledVector(U, -0.25 + 0.55 * rl).addScaledVector(F, 0.35 - 0.45 * ll);
+        aim(th, ca, _dir.normalize(), wcr);
+        _dir.copy(U).multiplyScalar(-0.85).addScaledVector(F, 0.55 - 0.3 * ll).addScaledVector(S, -0.1 * sg);
+        aim(ca, ft, _dir.normalize(), wcr);
+        _dir.copy(F).multiplyScalar(0.55).addScaledVector(U, -0.8);
+        aim(ft, left ? b.ball_l : b.ball_r, _dir.normalize(), wcr * 0.8);
+      }
+      // head tilted back to look up the wall
+      _dir.copy(U).multiplyScalar(0.75).addScaledVector(F, -0.55);
+      aim(b.neck_01, b.Head, _dir.normalize(), wcr * 0.85);
+    }
+
+    // zip: stretched out behind the web arm, legs together, free arm swept back
+    const wzp = this.lw[L.zip];
+    if (wzp > 0.01) {
+      const freeLeft = inp.hand === 1;
+      const fs = freeLeft ? 1 : -1;
+      _dir.copy(U).multiplyScalar(-0.75).addScaledVector(S, 0.45 * fs).addScaledVector(F, -0.25);
+      aim(freeLeft ? b.upperarm_l : b.upperarm_r, freeLeft ? b.lowerarm_l : b.lowerarm_r, _dir.normalize(), wzp);
+      _dir.copy(U).multiplyScalar(-0.9).addScaledVector(S, 0.2 * fs).addScaledVector(F, 0.1);
+      aim(freeLeft ? b.lowerarm_l : b.lowerarm_r, freeLeft ? b.hand_l : b.hand_r, _dir.normalize(), wzp);
+      for (let side = 0; side < 2; side++) {
+        const left = side === 0;
+        const sg = left ? 1 : -1;
+        const knee = left === freeLeft ? 0.55 : 0.1;
+        _dir.copy(U).multiplyScalar(-1).addScaledVector(F, -0.15 + knee * 0.6).addScaledVector(S, 0.06 * sg);
+        aim(left ? b.thigh_l : b.thigh_r, left ? b.calf_l : b.calf_r, _dir.normalize(), wzp);
+        _dir.copy(U).multiplyScalar(-1).addScaledVector(F, -0.25 - knee * 0.9);
+        aim(left ? b.calf_l : b.calf_r, left ? b.foot_l : b.foot_r, _dir.normalize(), wzp);
+      }
+    }
+
     // swing: free arm out for balance, legs trail then tuck through the bottom of the arc
     const wsw = this.lw[L.swing];
     springStep(this.swingPhaseS, this.swingPhaseV, 0, inp.swingPhase, 0.12, dt);
@@ -493,9 +588,12 @@ export class HeroAnimator {
         const sg = left ? 1 : -1;
         const lead = left === freeLeft;
         const k = lead ? tuck : tuck * 0.6;
-        _dir.copy(U).multiplyScalar(-0.95 + 0.55 * k).addScaledVector(F, -0.28 + 1.05 * k).addScaledVector(S, 0.1 * sg);
+        // hips flexed a little even when trailing, and the legs hang with
+        // gravity instead of continuing the rope line (no "plank" body)
+        _dir.copy(U).multiplyScalar(-0.9 + 0.55 * k).addScaledVector(F, (lead ? 0.05 : -0.2) + 1.0 * k).addScaledVector(S, 0.12 * sg);
+        _dir.normalize().addScaledVector(_kn.set(0, -1, 0), 0.35 * (1 - k)).addScaledVector(F, 0.1);
         aim(left ? b.thigh_l : b.thigh_r, left ? b.calf_l : b.calf_r, (left ? sp.thL : sp.thR).step(_dir.normalize(), _tmp, hl, dt), wsw);
-        _dir.copy(U).multiplyScalar(-1).addScaledVector(F, -0.35 - 0.55 * k);
+        _dir.copy(U).multiplyScalar(-1).addScaledVector(F, (lead ? -0.75 : -0.5) - 0.5 * k);
         aim(left ? b.calf_l : b.calf_r, left ? b.foot_l : b.foot_r, (left ? sp.caL : sp.caR).step(_dir.normalize(), _tmp, hl, dt), wsw);
         _dir.copy(U).multiplyScalar(-0.75).addScaledVector(F, -0.65 + 0.5 * k);
         aim(left ? b.foot_l : b.foot_r, left ? b.ball_l : b.ball_r, (left ? sp.ftL : sp.ftR).step(_dir.normalize(), _tmp, hl, dt), wsw * 0.7);
@@ -525,9 +623,22 @@ export class HeroAnimator {
       aim(ha, fi, (h === 0 ? sp.ahL : sp.ahR).step(_dir, _tmp, 0.05, dt), wa * 0.8);
     }
 
-    // flip: tight tuck
+    // flip: tight tuck (corkscrew: long body, arms crossed on the chest)
     const wfl = this.lw[L.flip];
-    if (wfl > 0.01) {
+    if (wfl > 0.01 && inp.trick === 1) {
+      for (let side = 0; side < 2; side++) {
+        const left = side === 0;
+        const sg = left ? 1 : -1;
+        _dir.copy(U).multiplyScalar(-1).addScaledVector(S, 0.04 * sg).addScaledVector(F, left ? 0.12 : -0.05);
+        aim(left ? b.thigh_l : b.thigh_r, left ? b.calf_l : b.calf_r, _dir.normalize(), wfl);
+        _dir.copy(U).multiplyScalar(-1).addScaledVector(F, left ? -0.35 : -0.1);
+        aim(left ? b.calf_l : b.calf_r, left ? b.foot_l : b.foot_r, _dir.normalize(), wfl);
+        _dir.copy(U).multiplyScalar(-0.55).addScaledVector(F, 0.55).addScaledVector(S, 0.35 * sg);
+        aim(left ? b.upperarm_l : b.upperarm_r, left ? b.lowerarm_l : b.lowerarm_r, _dir.normalize(), wfl);
+        _dir.copy(S).multiplyScalar(-0.85 * sg).addScaledVector(U, 0.35).addScaledVector(F, 0.3);
+        aim(left ? b.lowerarm_l : b.lowerarm_r, left ? b.hand_l : b.hand_r, _dir.normalize(), wfl);
+      }
+    } else if (wfl > 0.01) {
       for (let side = 0; side < 2; side++) {
         const left = side === 0;
         const sg = left ? 1 : -1;
@@ -542,8 +653,46 @@ export class HeroAnimator {
       }
     }
 
+    // "thwip": middle + ring fingers curled onto the palm, index, pinky and thumb straight
+    for (let h = 0; h < 2; h++) {
+      const wt = this.lw[h === 0 ? L.thwipL : L.thwipR];
+      if (wt <= 0.01) continue;
+      const l = h === 0;
+      const hand = l ? b.hand_l : b.hand_r;
+      hand.getWorldPosition(_p0);
+      (l ? b.middle_01_l : b.middle_01_r).getWorldPosition(_hf);
+      _hf.sub(_p0).normalize();
+      (l ? b.index_01_l : b.index_01_r).getWorldPosition(_lat);
+      (l ? b.pinky_01_l : b.pinky_01_r).getWorldPosition(_p1);
+      _lat.sub(_p1).normalize();
+      // palm normal (T-pose palms face down; handedness flips the cross product)
+      if (l) _pn.crossVectors(_hf, _lat);
+      else _pn.crossVectors(_lat, _hf);
+      _pn.normalize();
+      this.curl(l ? b.middle_01_l : b.middle_01_r, l ? b.middle_02_l : b.middle_02_r, l ? b.middle_03_l : b.middle_03_r, l ? b.middle_04_leaf_l : b.middle_04_leaf_r, 1.25, wt);
+      this.curl(l ? b.ring_01_l : b.ring_01_r, l ? b.ring_02_l : b.ring_02_r, l ? b.ring_03_l : b.ring_03_r, l ? b.ring_04_leaf_l : b.ring_04_leaf_r, 1.2, wt);
+      this.curl(l ? b.index_01_l : b.index_01_r, l ? b.index_02_l : b.index_02_r, l ? b.index_03_l : b.index_03_r, l ? b.index_04_leaf_l : b.index_04_leaf_r, -0.08, wt);
+      this.curl(l ? b.pinky_01_l : b.pinky_01_r, l ? b.pinky_02_l : b.pinky_02_r, l ? b.pinky_03_l : b.pinky_03_r, l ? b.pinky_04_leaf_l : b.pinky_04_leaf_r, -0.1, wt);
+    }
+
     b.middle_01_l.getWorldPosition(this.palmWorld[0]);
     b.middle_01_r.getWorldPosition(this.palmWorld[1]);
+  }
+
+  /**
+   * Bend a finger (three phalanges) towards the palm normal `_pn`, starting
+   * from the hand's forward axis `_hf`. `k` = curl amount (≈1.2 fist, <0 splayed back).
+   */
+  private curl(p1: THREE.Bone, p2: THREE.Bone, p3: THREE.Bone, tip: THREE.Bone, k: number, w: number) {
+    const a1 = k * 0.95;
+    const a2 = k * 2.0;
+    const a3 = k * 2.75;
+    _kn.copy(_hf).multiplyScalar(Math.cos(a1)).addScaledVector(_pn, Math.sin(a1));
+    aim(p1, p2, _kn.normalize(), w);
+    _kn.copy(_hf).multiplyScalar(Math.cos(a2)).addScaledVector(_pn, Math.sin(a2));
+    aim(p2, p3, _kn.normalize(), w);
+    _kn.copy(_hf).multiplyScalar(Math.cos(a3)).addScaledVector(_pn, Math.sin(a3));
+    aim(p3, tip, _kn.normalize(), w);
   }
 
   dispose() {

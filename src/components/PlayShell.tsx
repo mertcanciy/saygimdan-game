@@ -64,15 +64,17 @@ export default function PlayShell({ game }: { game: GameInfo }) {
     <main className="relative h-dvh w-full touch-none overflow-hidden overscroll-none bg-[#c9d4de] select-none">
       {hydrated && user && <GameComponent started={started} />}
 
-      {/* top-left: way back + where you are */}
-      <div className="absolute left-[max(1rem,env(safe-area-inset-left))] top-4 z-30 flex items-center gap-2 short:top-3">
+      {/* top-left: way back + where you are (compact on phones) */}
+      <div className="absolute left-[max(1rem,env(safe-area-inset-left))] top-4 z-30 flex items-center gap-2 short:left-[max(0.75rem,env(safe-area-inset-left))] short:top-[max(0.625rem,env(safe-area-inset-top))] short:gap-1.5 narrow:gap-1.5">
         <Link
           href="/games"
-          className="inline-flex h-10 items-center gap-2 rounded-full border border-line bg-paper/95 pl-3 pr-4 text-[14px] font-medium text-ink backdrop-blur hover:border-ink short:h-9"
+          aria-label="Oyunlara dön"
+          className="inline-flex h-10 items-center gap-2 rounded-full border border-line bg-paper/95 pl-3 pr-4 text-[14px] font-medium text-ink backdrop-blur hover:border-ink short:size-9 short:justify-center short:p-0 narrow:size-9 narrow:justify-center narrow:p-0"
         >
-          <ArrowLeft className="size-4" /> Oyunlar
+          <ArrowLeft className="size-4" />
+          <span className="short:hidden narrow:hidden">Oyunlar</span>
         </Link>
-        <span className="inline-flex h-10 items-center rounded-full bg-ink px-4 text-[14px] font-semibold tracking-[-0.01em] text-paper ring-1 ring-white/30 short:h-9">
+        <span className="inline-flex h-10 items-center rounded-full bg-ink px-4 text-[14px] font-semibold tracking-[-0.01em] text-paper ring-1 ring-white/30 short:h-9 short:px-3 short:text-[13px] narrow:h-9 narrow:px-3 narrow:text-[13px]">
           {game.title}
         </span>
         {touch && canFullscreen() && (
@@ -80,7 +82,7 @@ export default function PlayShell({ game }: { game: GameInfo }) {
             type="button"
             onClick={toggleFullscreen}
             aria-label={fullscreen ? "Tam ekrandan çık" : "Tam ekran"}
-            className="grid size-10 place-items-center rounded-full border border-line bg-paper/95 text-ink backdrop-blur short:size-9"
+            className="grid size-10 place-items-center rounded-full border border-line bg-paper/95 text-ink backdrop-blur short:size-9 narrow:size-9"
           >
             {fullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
           </button>
@@ -103,29 +105,35 @@ export default function PlayShell({ game }: { game: GameInfo }) {
         </div>
       )}
 
-      {/* start sheet */}
+      {/* start sheet (landscape phones: two columns so it fits without scrolling) */}
       {!started && (
-        <div className="absolute inset-0 z-30 flex items-end overflow-y-auto bg-paper/55 backdrop-blur-[6px] sm:items-center">
-          <div className="mx-auto w-full max-w-[1180px] px-4 pb-24 pt-20 sm:px-10 sm:pb-0 short:py-3">
-            <div className="max-w-[34rem] rounded-[28px] bg-paper p-7 shadow-[0_30px_80px_-30px_rgba(0,0,0,0.35)] sm:p-10 short:max-w-[40rem] short:p-5 animate-fade-up">
-              <p className="text-[15px] text-muted-ink short:hidden">{game.subtitle}</p>
-              <h1 className="display mt-2 text-[clamp(3.2rem,7vw,5.5rem)] short:mt-0 short:text-[2.6rem]">{game.title}</h1>
-              <p className="mt-5 text-[16px] leading-[1.55] text-ink short:mt-2 short:text-[14px]">{game.description}</p>
-              <p className="mt-3 text-[15px] leading-[1.55] text-muted-ink short:hidden">{game.goal}</p>
-              {touch ? (
-                <ul className="mt-6 grid gap-1.5 text-[14px] text-ink short:mt-3 short:text-[13px]">
-                  {TOUCH_HELP[game.slug].map((line) => (
-                    <li key={line} className="flex gap-2">
-                      <span aria-hidden className="mt-[0.45em] size-1.5 shrink-0 rounded-full bg-yellow" />
-                      {line}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <ControlsList game={game} className="mt-6" />
-              )}
-              <div className="mt-8 short:mt-4">
-                <Pill onClick={begin}>Başlat</Pill>
+        <div className="absolute inset-0 z-30 flex items-end overflow-y-auto bg-paper/55 backdrop-blur-[6px] sm:items-center short:items-center">
+          <div className="mx-auto w-full max-w-[1180px] px-4 pb-24 pt-20 sm:px-10 sm:pb-0 short:px-[max(1rem,env(safe-area-inset-left))] short:py-3 short:pt-14">
+            <div className="max-w-[34rem] rounded-[28px] bg-paper p-7 shadow-[0_30px_80px_-30px_rgba(0,0,0,0.35)] sm:p-10 short:mx-auto short:grid short:max-w-[46rem] short:grid-cols-[1fr_1.05fr] short:gap-x-7 short:rounded-[22px] short:p-5 narrow:p-6 animate-fade-up">
+              <div>
+                <p className="text-[15px] text-muted-ink short:hidden">{game.subtitle}</p>
+                <h1 className="display mt-2 text-[clamp(3.2rem,7vw,5.5rem)] short:mt-0 short:text-[clamp(2rem,9dvh,2.6rem)] narrow:text-[2.9rem]">{game.title}</h1>
+                <p className="mt-5 text-[16px] leading-[1.55] text-ink short:mt-2 short:text-[13.5px] short:leading-[1.45] narrow:mt-4 narrow:text-[15px]">{game.description}</p>
+                <p className="mt-3 text-[15px] leading-[1.55] text-muted-ink short:hidden narrow:text-[14px]">{game.goal}</p>
+              </div>
+              <div className="short:flex short:flex-col short:justify-between">
+                {touch ? (
+                  <ul className="mt-6 grid gap-1.5 text-[14px] text-ink short:mt-0 short:gap-1 short:text-[12.5px] short:leading-[1.35]">
+                    {TOUCH_HELP[game.slug].map((line) => (
+                      <li key={line} className="flex gap-2">
+                        <span aria-hidden className="mt-[0.45em] size-1.5 shrink-0 rounded-full bg-yellow" />
+                        {line}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <ControlsList game={game} className="mt-6 short:mt-0" />
+                )}
+                <div className="mt-8 short:mt-3 narrow:mt-6">
+                  <Pill onClick={begin} small={touch}>
+                    Başlat
+                  </Pill>
+                </div>
               </div>
             </div>
           </div>

@@ -357,6 +357,11 @@ const TREE_REFRESH = 0.25; // seconds between LOD re-sorts
  * Street trees with two levels of detail. Every tree's matrix/colour is built
  * once; a few times a second trees are re-sorted into a "near" (detailed) and a
  * "far" (coarse) instanced mesh by distance to the camera.
+ *
+ * Shadows come from an invisible proxy: the coarse crown (≈140 triangles
+ * instead of ≈2400), only for the near trees (the shadow map only covers the
+ * area around the player anyway). The detailed crowns were most of the
+ * shadow pass's triangles.
  */
 function Trees({ trees }: { trees: CityData["trees"] }) {
   const geo = treeGeometries();
@@ -364,11 +369,13 @@ function Trees({ trees }: { trees: CityData["trees"] }) {
   const nearCrown = useRef<THREE.InstancedMesh>(null);
   const farTrunk = useRef<THREE.InstancedMesh>(null);
   const farCrown = useRef<THREE.InstancedMesh>(null);
+  const shadowCrown = useRef<THREE.InstancedMesh>(null);
   const clock = useRef({ t: TREE_REFRESH, x: 1e9, z: 1e9 });
 
   const data = useMemo(() => {
     const trunk = new Float32Array(trees.length * 16);
     const crown = new Float32Array(trees.length * 16);
+    const shadow = new Float32Array(trees.length * 16);
     const color = new Float32Array(trees.length * 3);
     trees.forEach((t, i) => {
       tmp.position.set(t.x, 0.18, t.z);
@@ -379,10 +386,14 @@ function Trees({ trees }: { trees: CityData["trees"] }) {
       tmp.scale.set(t.s, t.s * (0.9 + (t.r % 0.3)), t.s);
       tmp.updateMatrix();
       tmp.matrix.toArray(crown, i * 16);
+      // shadow proxy: slightly inside the detailed crown so it never darkens its lit side
+      tmp.scale.multiplyScalar(0.88);
+      tmp.updateMatrix();
+      tmp.matrix.toArray(shadow, i * 16);
       const k = (t.r * 7.13) % 1;
       color.set([0.22 + k * 0.12, 0.36 + k * 0.12, 0.14 + k * 0.05], i * 3);
     });
-    return { trunk, crown, color };
+    return { trunk, crown, shadow, color };
   }, [trees]);
 
   useFrame(({ camera }, dt) => {
@@ -397,7 +408,8 @@ function Trees({ trees }: { trees: CityData["trees"] }) {
     const nc = nearCrown.current;
     const ft = farTrunk.current;
     const fc = farCrown.current;
-    if (!nt || !nc || !ft || !fc) return;
+    const sc = shadowCrown.current;
+    if (!nt || !nc || !ft || !fc || !sc) return;
     const near2 = TREE_NEAR * TREE_NEAR;
     let n = 0;
     let f = 0;
@@ -411,10 +423,11 @@ function Trees({ trees }: { trees: CityData["trees"] }) {
       (t.instanceMatrix.array as Float32Array).set(data.trunk.subarray(i * 16, i * 16 + 16), j * 16);
       (cr.instanceMatrix.array as Float32Array).set(data.crown.subarray(i * 16, i * 16 + 16), j * 16);
       (cr.instanceColor!.array as Float32Array).set(data.color.subarray(i * 3, i * 3 + 3), j * 3);
+      if (isNear) (sc.instanceMatrix.array as Float32Array).set(data.shadow.subarray(i * 16, i * 16 + 16), j * 16);
     }
-    nt.count = nc.count = n;
+    nt.count = nc.count = sc.count = n;
     ft.count = fc.count = f;
-    for (const m of [nt, nc, ft, fc]) {
+    for (const m of [nt, nc, ft, fc, sc]) {
       m.instanceMatrix.needsUpdate = true;
       if (m.instanceColor) m.instanceColor.needsUpdate = true;
       m.computeBoundingSphere();
@@ -428,6 +441,7 @@ function Trees({ trees }: { trees: CityData["trees"] }) {
       if (m) m.count = 0;
     }
     if (nearTrunk.current) nearTrunk.current.count = 0;
+    if (shadowCrown.current) shadowCrown.current.count = 0;
     if (farTrunk.current) farTrunk.current.count = 0;
     clock.current.x = 1e9;
   }, [data]);
@@ -438,14 +452,18 @@ function Trees({ trees }: { trees: CityData["trees"] }) {
       <instancedMesh ref={nearTrunk} args={[geo.trunk, undefined, cap]} castShadow>
         <meshStandardMaterial color="#4a3a2c" roughness={0.95} />
       </instancedMesh>
-      <instancedMesh ref={nearCrown} args={[geo.crown, undefined, cap]} castShadow receiveShadow>
+      <instancedMesh ref={nearCrown} args={[geo.crown, undefined, cap]} receiveShadow>
         <meshStandardMaterial color="#ffffff" roughness={0.85} />
       </instancedMesh>
       <instancedMesh ref={farTrunk} args={[geo.trunkFar, undefined, cap]}>
         <meshStandardMaterial color="#4a3a2c" roughness={0.95} />
       </instancedMesh>
-      <instancedMesh ref={farCrown} args={[geo.crownFar, undefined, cap]} castShadow>
+      <instancedMesh ref={farCrown} args={[geo.crownFar, undefined, cap]}>
         <meshStandardMaterial color="#ffffff" roughness={0.9} />
+      </instancedMesh>
+      {/* shadow-only: writes nothing to the screen, only to the shadow map */}
+      <instancedMesh ref={shadowCrown} args={[geo.crownFar, undefined, cap]} castShadow>
+        <meshBasicMaterial colorWrite={false} depthWrite={false} />
       </instancedMesh>
     </>
   );

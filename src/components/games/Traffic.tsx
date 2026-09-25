@@ -596,10 +596,12 @@ export default function Traffic({ started }: { started: boolean }) {
     best: 0,
   });
 
+  // the 3D tree must not re-render with every HUD update (≈10×/s)
+  const scene = useMemo(() => <TrafficScene started={started} onHud={setHud} />, [started]);
   return (
     <div className="absolute inset-0">
       <Canvas shadows="percentage" dpr={[1, 1.5]} gl={CANVAS_GL} camera={{ fov: 66, near: 0.05, far: 3000 }}>
-        <TrafficScene started={started} onHud={setHud} />
+        {scene}
       </Canvas>
       <div className="absolute top-4 right-4 flex flex-col gap-2 items-end">
         <HudStat label="Skor" value={`${hud.score}`} accent={ACCENT} sub={hud.combo > 1 ? `×${Math.min(8, hud.combo)} kombo` : undefined} />

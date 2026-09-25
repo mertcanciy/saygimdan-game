@@ -61,7 +61,7 @@ export class WebRibbon {
           float core = 1.0 - smoothstep(0.35, 1.0, x);
           // faint fibre twist along the strand
           float fibre = 0.85 + 0.15 * sin(vUv.y * 900.0 + vUv.x * 6.0);
-          gl_FragColor = vec4(uColor * fibre, core * 0.92);
+          gl_FragColor = vec4(uColor * fibre * 1.15, core);
         }`,
     });
     this.mesh = new THREE.Mesh(g, mat);
@@ -105,8 +105,9 @@ export class WebRibbon {
       _v.copy(cam).sub(_p);
       const dist = _v.length();
       _s.crossVectors(_t, _v).normalize();
-      // keep ~1.3 px on screen far away, 2.5 cm up close
-      const w = Math.max(0.022, dist * 0.0022);
+      // a readable strand: ≈2 px on screen far away, 3.5 cm thick up close,
+      // thinning slightly towards the anchor
+      const w = Math.max(0.035, dist * 0.0032) * (1 - 0.35 * (i / SEG));
       this.pos[i * 6] = _p.x - _s.x * w;
       this.pos[i * 6 + 1] = _p.y - _s.y * w;
       this.pos[i * 6 + 2] = _p.z - _s.z * w;

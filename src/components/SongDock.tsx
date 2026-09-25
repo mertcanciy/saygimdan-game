@@ -41,7 +41,7 @@ export default function SongDock() {
   const [volume, setVolume] = useState(0.8);
   const [muted, setMuted] = useState(false);
   const volRef = useRef(volume);
-  // in-game on a phone the corners belong to the thumbs: shrink to a small pill at the bottom centre
+  // in-game on a phone the corners belong to the thumbs: shrink to a small round button between them
   const pathname = usePathname();
   const touch = useIsTouch();
   const compact = touch && pathname.startsWith("/play");
@@ -179,10 +179,11 @@ export default function SongDock() {
 
   return (
     <div
-      className={`fixed z-50 flex items-center gap-3 rounded-full border border-line bg-paper/95 py-1.5 pl-1.5 text-ink shadow-[0_10px_30px_-12px_rgba(0,0,0,0.25)] backdrop-blur ${
+      className={`fixed z-50 flex items-center rounded-full border border-line text-ink backdrop-blur ${
         compact
-          ? "bottom-[max(1rem,env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 pr-3"
-          : "bottom-4 right-4 pr-4"
+          ? // portrait: the bottom edge is all thumbs, so park it on the right above the button arc
+            "bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 gap-0 bg-paper/80 p-1 shadow-[0_6px_18px_-10px_rgba(0,0,0,0.4)] narrow:bottom-[calc(max(1.5rem,env(safe-area-inset-bottom))+14rem)] narrow:left-auto narrow:right-[max(1rem,env(safe-area-inset-right))] narrow:translate-x-0"
+          : "bottom-4 right-4 gap-3 bg-paper/95 py-1.5 pl-1.5 pr-4 shadow-[0_10px_30px_-12px_rgba(0,0,0,0.25)] narrow:bottom-3 narrow:right-3 narrow:gap-2.5 narrow:pr-3.5"
       }`}
       role="region"
       aria-label="Şarkı çalar"
@@ -194,12 +195,18 @@ export default function SongDock() {
         onClick={toggle}
         disabled={mode === "loading" || mode === "missing"}
         aria-label={playing ? "Duraklat" : "Çal"}
-        className="grid size-10 shrink-0 place-items-center rounded-full bg-yellow text-ink transition-transform active:scale-95 disabled:opacity-60"
+        className={`relative grid shrink-0 place-items-center rounded-full bg-yellow text-ink transition-transform active:scale-95 disabled:opacity-60 ${
+          compact ? "size-9" : "size-10"
+        }`}
       >
-        {playing ? <Pause className="size-4 fill-current" /> : <Play className="size-4 translate-x-px fill-current" />}
+        {playing ? (
+          <Pause className={`fill-current ${compact ? "size-3.5" : "size-4"}`} />
+        ) : (
+          <Play className={`translate-x-px fill-current ${compact ? "size-3.5" : "size-4"}`} />
+        )}
       </button>
 
-      <div className="flex items-end gap-[3px] h-4" aria-hidden>
+      <div className={`h-4 items-end gap-[3px] ${compact ? "hidden" : "flex"}`} aria-hidden>
         {[0, 1, 2, 3].map((i) => (
           <span
             key={i}

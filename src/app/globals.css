@@ -3,6 +3,15 @@
 /* landscape phones (short viewports) and narrow portrait phones */
 @custom-variant short (@media (max-height: 520px));
 @custom-variant narrow (@media (max-width: 480px));
+/* either of the above: a phone in any orientation */
+@custom-variant phone {
+  @media (max-height: 520px) {
+    @slot;
+  }
+  @media (max-width: 480px) {
+    @slot;
+  }
+}
 
 /* Paper, ink and one highlighter. */
 :root {
@@ -34,6 +43,9 @@
   --popover: var(--paper);
   --popover-foreground: var(--ink);
   --radius: 0.75rem;
+}
+@media (max-width: 480px), (max-height: 520px) {
+  :root { --nav-h: 60px; }
 }
 
 @theme inline {
@@ -190,6 +202,15 @@
 }
 .ghost:hover { border-color: var(--ink); }
 
+/* phones: pills a notch smaller (tap target stays ≥ 44px) */
+@media (max-width: 480px), (max-height: 520px) {
+  .pill { height: 50px; padding-left: 22px; font-size: 16px; gap: 12px; }
+  .pill .disc { width: 38px; height: 38px; }
+  .pill-sm { height: 44px; padding-left: 18px; font-size: 15px; gap: 10px; }
+  .pill-sm .disc { width: 32px; height: 32px; }
+  .ghost { height: 50px; padding: 0 22px; font-size: 16px; }
+}
+
 /* keycaps */
 .key {
   display: inline-grid;
@@ -204,6 +225,30 @@
   font-family: var(--font-mono);
   font-size: 11.5px;
   color: var(--ink);
+}
+
+/*
+ * In-game HUD on phones. Each game stacks its HudStat/HudBar tiles in a
+ * right-aligned flex column; on a phone that column would eat the screen, so
+ * turn it into a compact 2×2 grid (portrait / small landscape) or a single
+ * row across the top (roomier landscape). Unlayered, so it wins over the
+ * utility classes on the game's wrapper.
+ */
+@media (max-height: 520px), (max-width: 480px) {
+  .flex-col:has(> [data-hud-tile]) {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(4.6rem, auto));
+    justify-content: end;
+    align-items: stretch;
+    gap: 5px;
+    top: max(0.625rem, env(safe-area-inset-top));
+    right: max(0.75rem, env(safe-area-inset-right));
+  }
+}
+@media (max-height: 520px) and (min-width: 900px) {
+  .flex-col:has(> [data-hud-tile]) {
+    grid-template-columns: repeat(4, minmax(4.6rem, auto));
+  }
 }
 
 /* equalizer bars in the song dock */

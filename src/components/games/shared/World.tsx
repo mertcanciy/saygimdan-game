@@ -286,11 +286,14 @@ function EnvSkyline({ night }: { night: boolean }) {
 /**
  * Post-processing stack + adaptive quality. Keep it last inside the Canvas.
  *
- * A performance monitor only steps the render resolution up/down (smoothly,
- * invisible to the eye). Ambient occlusion is decided once at start (on for
- * desktops, off for phones) and can only be switched off — permanently — if
- * the frame rate stays bad at the lowest resolution. Toggling AO back and
- * forth made the whole image pulse brighter/darker.
+ * Changing the render resolution reallocates the canvas and every
+ * post-processing target — a visible freeze of a few hundred ms. So quality
+ * only ever steps DOWN, and only when the frame rate stays low: the monitor
+ * starts after the scene has warmed up, averages over several seconds, and
+ * never steps back up (a machine hovering around the threshold would
+ * otherwise hitch every few seconds). Ambient occlusion is decided once at
+ * start (on for desktops, off for phones) and dropped for good only if the
+ * frame rate is still bad at a lower resolution.
  */
 const DPR_STEPS = [1.5, 1.25, 1, 0.85];
 
@@ -300,23 +303,33 @@ export function WorldEffects({ preset, ao = true }: { preset: WorldPreset; ao?: 
   const [start] = useState(() => (isTouchDevice() ? 2 : 0));
   const [level, setLevel] = useState(start);
   const [aoOn, setAoOn] = useState(() => ao && !isTouchDevice());
+  const [monitor, setMonitor] = useState(false);
+  const drops = useRef(0);
   useEffect(() => {
     const cap = typeof window !== "undefined" ? window.devicePixelRatio : 1;
     setDpr(Math.min(cap, DPR_STEPS[level]));
   }, [level, setDpr]);
+  useEffect(() => {
+    // shader compilation and asset uploads make the first seconds look slow
+    const t = setTimeout(() => setMonitor(true), 6000);
+    return () => clearTimeout(t);
+  }, []);
   return (
     <>
-      <PerformanceMonitor
-        bounds={(refresh) => (refresh > 90 ? [55, 85] : [44, 57])}
-        flipflops={3}
-        onDecline={() => setLevel((l) => Math.min(DPR_STEPS.length - 1, l + 1))}
-        onIncline={() => setLevel((l) => Math.max(0, l - 1))}
-        onFallback={() => {
-          // kept flip-flopping: settle one step down and drop AO for good
-          setLevel((l) => Math.min(DPR_STEPS.length - 1, Math.max(l, 2)));
-          setAoOn(false);
-        }}
-      />
+      {monitor && (
+        <PerformanceMonitor
+          ms={400}
+          iterations={10}
+          bounds={(refresh) => (refresh > 90 ? [55, 1000] : [42, 1000])}
+          flipflops={Infinity}
+          onDecline={() => {
+            drops.current++;
+            // first drop: lower resolution; second: AO off; then resolution again
+            if (drops.current === 2 && aoOn) setAoOn(false);
+            else setLevel((l) => Math.min(DPR_STEPS.length - 1, l + 1));
+          }}
+        />
+      )}
       <EffectComposer multisampling={0}>
         {aoOn ? (
           <N8AO aoRadius={4} distanceFalloff={1.2} intensity={preset === "night" ? 1.4 : 2.2} halfRes quality="performance" />

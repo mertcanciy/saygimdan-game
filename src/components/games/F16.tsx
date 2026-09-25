@@ -838,6 +838,8 @@ export default function F16({ started }: { started: boolean }) {
     document.addEventListener("pointerlockchange", on);
     return () => document.removeEventListener("pointerlockchange", on);
   }, []);
+  // the 3D tree must not re-render with every HUD update (≈10×/s)
+  const scene = useMemo(() => <F16Scene started={started} onHud={setHud} reticle={reticle} />, [started, reticle]);
   return (
     <div className="absolute inset-0">
       {/* reticles are positioned every frame from the scene (see F16Scene) */}
@@ -863,7 +865,7 @@ export default function F16({ started }: { started: boolean }) {
         </div>
       </div>
       <Canvas shadows="percentage" dpr={[1, 1.5]} gl={CANVAS_GL} camera={{ fov: 62, near: 0.2, far: 4500 }}>
-        <F16Scene started={started} onHud={setHud} reticle={reticle} />
+        {scene}
       </Canvas>
       <div className="absolute top-4 right-4 flex flex-col gap-2 items-end">
         <HudStat label="Skor" value={`${hud.score}`} accent={ACCENT} sub={hud.combo > 1 ? `×${hud.combo} kombo` : undefined} />

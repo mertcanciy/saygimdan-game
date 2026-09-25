@@ -50,8 +50,8 @@ export default function Landing() {
 
 function Hero({ onPlay }: { onPlay: () => void }) {
   return (
-    <section className="mx-auto flex min-h-[calc(100svh-var(--nav-h)-40px)] max-w-[1280px] flex-col items-center justify-center px-5 pb-24 pt-14 text-center sm:px-10">
-      <h1 className="display text-[clamp(3.4rem,11.2vw,10.5rem)]">
+    <section className="mx-auto flex min-h-[calc(100svh-var(--nav-h)-40px)] max-w-[1280px] flex-col items-center justify-center px-5 pb-24 pt-14 text-center sm:px-10 narrow:pb-20 narrow:pt-10 short:min-h-0 short:pb-16 short:pt-10">
+      <h1 className="display text-[clamp(3.4rem,11.2vw,10.5rem)] narrow:text-[clamp(2.6rem,13.4vw,3.4rem)] short:text-[clamp(3rem,15dvh,4.6rem)]">
         <span className="rise">
           <span>Şarkı çalıyor.</span>
         </span>
@@ -62,12 +62,12 @@ function Hero({ onPlay }: { onPlay: () => void }) {
         </span>
       </h1>
 
-      <p className="mt-8 max-w-[36rem] text-[clamp(1.05rem,1.6vw,1.3rem)] leading-[1.5] text-muted-ink animate-fade-up [animation-delay:0.5s]">
+      <p className="mt-8 max-w-[36rem] text-[clamp(1.05rem,1.6vw,1.3rem)] leading-[1.5] text-muted-ink animate-fade-up [animation-delay:0.5s] narrow:mt-6 narrow:text-[16px] short:mt-5">
         Bengü&apos;nün Saygımdan&apos;ı arkada dönerken gökdelenlerin arasında ağ at, gece meydanında drift yap,
         F-16 ile çatıları sıyır. Kurulum yok, tarayıcında açılır.
       </p>
 
-      <div className="mt-10 flex flex-wrap items-center justify-center gap-3 animate-fade-up [animation-delay:0.65s]">
+      <div className="mt-10 flex flex-wrap items-center justify-center gap-3 animate-fade-up [animation-delay:0.65s] narrow:mt-8 short:mt-7">
         <Pill onClick={onPlay}>Oynamaya başla</Pill>
         <a href="#oyunlar" className="ghost">
           Oyunlara bak
@@ -115,11 +115,11 @@ function GamesPinned({ loggedIn }: { loggedIn: boolean }) {
   return (
     <section id="oyunlar" ref={ref} className="relative border-t border-line lg:h-[360vh]">
       <div className="lg:sticky lg:top-[var(--nav-h)] lg:h-[calc(100svh-var(--nav-h))]">
-        <div className="mx-auto grid h-full max-w-[1280px] items-center gap-10 px-5 py-16 sm:px-10 lg:grid-cols-[0.8fr_1.35fr] lg:gap-16 lg:py-10">
+        <div className="mx-auto grid h-full max-w-[1280px] items-center gap-10 px-5 py-16 sm:px-10 lg:grid-cols-[0.8fr_1.35fr] lg:gap-16 lg:py-10 narrow:gap-8 narrow:py-12">
           {/* list */}
           <div>
             <h2 className="display-2 text-[clamp(2.4rem,4.6vw,4.2rem)]">Dört oyun, tek şarkı.</h2>
-            <p className="mt-4 max-w-[26rem] text-[17px] leading-[1.55] text-muted-ink">
+            <p className="mt-4 max-w-[26rem] text-[17px] leading-[1.55] text-muted-ink narrow:text-[16px]">
               Hepsi aynı şehirde geçiyor. Şarkı sen oyun değiştirirken de çalmaya devam eder.
             </p>
 
@@ -188,15 +188,15 @@ function GamesPinned({ loggedIn }: { loggedIn: boolean }) {
           </div>
 
           {/* stacked list (mobile / tablet) */}
-          <ul className="grid gap-10 lg:hidden">
+          <ul className="grid gap-10 sm:grid-cols-2 sm:gap-x-6 lg:hidden narrow:gap-9">
             {GAMES.map((g) => (
               <li key={g.slug}>
                 <Link href={hrefFor(g.slug)} className="block">
                   <div className="aspect-[16/10] overflow-hidden rounded-[18px] bg-soft">
                     <GameShot slug={g.slug} alt={`${g.title} oyunundan bir kare`} />
                   </div>
-                  <h3 className="mt-4 text-[28px] font-bold tracking-[-0.035em]">{g.title}</h3>
-                  <p className="mt-1 text-[16px] leading-[1.5] text-muted-ink">{g.description}</p>
+                  <h3 className="mt-4 text-[28px] font-bold tracking-[-0.035em] narrow:mt-3 narrow:text-[24px]">{g.title}</h3>
+                  <p className="mt-1 text-[16px] leading-[1.5] text-muted-ink narrow:text-[15px]">{g.description}</p>
                 </Link>
               </li>
             ))}
@@ -239,14 +239,14 @@ function SignIn() {
 
   return (
     <section id="giris" className="border-t border-line">
-      <div className="mx-auto grid max-w-[1280px] gap-12 px-5 py-24 sm:px-10 lg:grid-cols-2 lg:py-32">
+      <div className="mx-auto grid max-w-[1280px] gap-12 px-5 py-24 sm:px-10 lg:grid-cols-2 lg:py-32 narrow:gap-10 narrow:py-16 short:py-14">
         <div>
           <h2 className="display-2 text-[clamp(2.6rem,5.4vw,5rem)]">
             Adını yaz,
             <br />
             şehre in.
           </h2>
-          <p className="mt-5 max-w-[28rem] text-[17px] leading-[1.55] text-muted-ink">
+          <p className="mt-5 max-w-[28rem] text-[17px] leading-[1.55] text-muted-ink narrow:text-[16px]">
             Hesap açmak yok. Adın ve e-postan sadece bu tarayıcıda saklanır, hiçbir yere gönderilmez.
           </p>
         </div>
@@ -256,7 +256,7 @@ function SignIn() {
             <p className="text-[clamp(1.6rem,2.6vw,2.2rem)] font-semibold tracking-[-0.03em]">
               Tekrar hoş geldin, {user.name}.
             </p>
-            <div className="mt-8 flex flex-wrap items-center gap-4">
+            <div className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-3">
               <Pill
                 onClick={() => {
                   startMusic();
@@ -265,7 +265,7 @@ function SignIn() {
               >
                 Oyunlara geç
               </Pill>
-              <button type="button" onClick={clearUser} className="text-[15px] text-muted-ink underline underline-offset-4 hover:text-ink">
+              <button type="button" onClick={clearUser} className="min-h-10 text-[15px] text-muted-ink underline underline-offset-4 hover:text-ink">
                 Farklı isimle gir
               </button>
             </div>
@@ -291,7 +291,7 @@ function SignIn() {
               placeholder="ada@mail.com"
               error={error?.field === "email" ? error.text : undefined}
             />
-            <div className="mt-10">
+            <div className="mt-10 narrow:mt-8">
               <Pill type="submit">Oyunlara geç</Pill>
             </div>
           </form>
@@ -352,12 +352,12 @@ function Field({
 function Footer() {
   return (
     <footer className="border-t border-line">
-      <div className="mx-auto flex max-w-[1280px] flex-wrap items-center justify-between gap-4 px-5 pt-10 text-[14px] text-muted-ink sm:px-10">
+      <div className="mx-auto flex max-w-[1280px] flex-wrap items-center justify-between gap-x-4 gap-y-2 px-5 pt-10 text-[14px] text-muted-ink sm:px-10 narrow:pt-8 narrow:text-[13px]">
         <Wordmark className="text-ink" />
-        <p>Şarkı: Bengü, Saygımdan. Oyunlar klavye ve fareyle oynanır.</p>
+        <p>Şarkı: Bengü, Saygımdan. Oyunlar klavye ve fareyle, telefonda dokunmatik tuşlarla oynanır.</p>
       </div>
       <div aria-hidden className="overflow-hidden">
-        <div className="select-none whitespace-nowrap text-center text-[21.5vw] font-extrabold leading-[0.9] tracking-[-0.07em] text-ink translate-y-[12%]">
+        <div className="select-none whitespace-nowrap text-center text-[20vw] font-extrabold leading-[0.9] tracking-[-0.07em] text-ink translate-y-[12%]">
           saygımdan
         </div>
       </div>

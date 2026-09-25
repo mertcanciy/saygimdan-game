@@ -700,7 +700,7 @@ function DriftScene({ started, onHud }: { started: boolean; onHud: (h: Hud) => v
 
 function NavArrow({ deg, label }: { deg: number; label: string }) {
   return (
-    <div className="pointer-events-none absolute inset-x-0 top-4 flex justify-center short:top-3 narrow:top-16">
+    <div className="pointer-events-none absolute inset-x-0 top-4 flex justify-center short:top-3 narrow:top-[13.5rem]">
       <div className="flex items-center gap-2.5 rounded-full bg-[#0a0a0a]/80 py-1.5 pl-1.5 pr-4 text-white backdrop-blur">
         <span className="grid size-8 place-items-center rounded-full bg-[#ffd400]">
           <svg
@@ -722,10 +722,12 @@ export default function Drift({ started }: { started: boolean }) {
   const [hud, setHud] = useState<Hud>(HUD0);
   const gateLabel = hud.gate === 0 ? (hud.lap === 0 && hud.lapTime === 0 ? "Başlangıç" : "Bitiş") : `Kapı ${hud.gate}/${hud.gates - 1}`;
 
+  // the 3D tree must not re-render with every HUD update (≈10×/s)
+  const scene = useMemo(() => <DriftScene started={started} onHud={setHud} />, [started]);
   return (
     <div className="absolute inset-0">
       <Canvas shadows="percentage" dpr={[1, 1.5]} gl={CANVAS_GL} camera={{ fov: 62, near: 0.2, far: 3000, position: [-68, 3, 0] }}>
-        <DriftScene started={started} onHud={setHud} />
+        {scene}
       </Canvas>
       {started && <NavArrow deg={hud.navDeg} label={`${gateLabel} · ${hud.navDist} m`} />}
       <div className="absolute top-4 right-4 flex flex-col gap-2 items-end">

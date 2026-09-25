@@ -53,7 +53,7 @@ export function Pill({
 export function SiteNav({ children }: { children?: React.ReactNode }) {
   return (
     <header className="sticky top-0 z-40 h-[var(--nav-h)] border-b border-line bg-paper/90 backdrop-blur">
-      <div className="mx-auto flex h-full max-w-[1280px] items-center justify-between gap-6 px-5 sm:px-10">
+      <div className="mx-auto flex h-full max-w-[1280px] items-center justify-between gap-4 px-5 sm:gap-6 sm:px-10 narrow:px-4">
         <Wordmark />
         <nav className="flex items-center gap-2 sm:gap-8 text-[15px] text-muted-ink">{children}</nav>
       </div>
