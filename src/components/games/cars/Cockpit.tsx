@@ -382,7 +382,9 @@ export default function Cockpit({
     mirrorCam.rotateX(-0.075);
     mirrorCam.updateMatrixWorld();
     const prev = gl.getRenderTarget();
-    // the sun's shadow maps are view-independent: reuse the main pass's
+    // the sun's shadow maps are view-independent: don't re-render them for the
+    // mirror. This runs before the main pass, so the maps are one frame old;
+    // moving cars' shadows lag by a frame in the mirror, which is invisible there
     const prevShadowAuto = gl.shadowMap.autoUpdate;
     gl.shadowMap.autoUpdate = false;
     b.visible = false;
