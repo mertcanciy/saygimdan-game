@@ -683,7 +683,7 @@ function DriftScene({ started, onHud }: { started: boolean; onHud: (h: Hud) => v
       <City city={city} night={PRESETS[PRESET].night} />
       <Plaza half={plazaHalf} />
       <TrackProps track={track} nextGate={nextGate} car={probe} resetCones={conesReset} />
-      <TrafficFleet cars={parked} flares={false} beams={false} lights={false} shadows={false} />
+      <TrafficFleet cars={parked} dynamic={false} flares={false} beams={false} lights={false} shadows={false} />
       <Car ref={car} color="#c2185b" glow={ACCENT} />
       <SkidMarks emitRef={skid} />
       <TireSmoke ref={smoke} count={700} color="#8e929c" fogColor={PRESETS[PRESET].fog} fogDensity={PRESETS[PRESET].fogDensity} />
