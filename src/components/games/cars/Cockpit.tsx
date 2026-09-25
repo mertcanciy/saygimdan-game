@@ -382,11 +382,15 @@ export default function Cockpit({
     mirrorCam.rotateX(-0.075);
     mirrorCam.updateMatrixWorld();
     const prev = gl.getRenderTarget();
+    // the sun's shadow maps are view-independent: reuse the main pass's
+    const prevShadowAuto = gl.shadowMap.autoUpdate;
+    gl.shadowMap.autoUpdate = false;
     b.visible = false;
     gl.setRenderTarget(mirrorRT);
     gl.render(scene, mirrorCam);
     gl.setRenderTarget(prev);
     b.visible = true;
+    gl.shadowMap.autoUpdate = prevShadowAuto;
   }, 0.5);
 
   // car group: rotate so car +Z points along camera -Z, eye at the origin
