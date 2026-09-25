@@ -52,7 +52,7 @@ export default function GamesPage() {
               >
                 <div className="md:order-none">
                   <h2 className="text-[clamp(2.4rem,5vw,4.4rem)] font-extrabold leading-[0.95] tracking-[-0.055em] narrow:text-[2.2rem]">
-                    <span className="bg-[linear-gradient(var(--yellow),var(--yellow))] bg-[length:0%_100%] bg-no-repeat px-1 -mx-1 transition-[background-size] duration-300 ease-out group-hover:bg-[length:100%_100%] group-focus-visible:bg-[length:100%_100%]">
+                    <span className="bg-[linear-gradient(var(--red),var(--red))] bg-[length:0%_100%] bg-no-repeat px-1 -mx-1 transition-[background-size] duration-300 ease-out group-hover:bg-[length:100%_100%] group-hover:text-paper group-focus-visible:bg-[length:100%_100%] group-focus-visible:text-paper">
                       {g.title}
                     </span>
                   </h2>

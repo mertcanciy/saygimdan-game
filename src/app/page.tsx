@@ -7,6 +7,8 @@ import { GAMES } from "@/lib/games";
 import { useHydrated, useMusicStore, useUserStore } from "@/lib/store";
 import { Keys, Pill, SiteNav, Wordmark } from "@/components/site/Chrome";
 import GameShot from "@/components/site/GameShot";
+import FlutedBackdrop from "@/components/site/FlutedBackdrop";
+import RecordVinyl from "@/components/site/RecordVinyl";
 
 export default function Landing() {
   const router = useRouter();
@@ -30,13 +32,13 @@ export default function Landing() {
         <a href="#giris" className="hidden sm:inline hover:text-ink transition-colors">
           {loggedIn ? "Hesap" : "Giriş"}
         </a>
-        <Pill small onClick={play}>
+        <Pill small play onClick={play}>
           {loggedIn ? "Oyunlara git" : "Oyna"}
         </Pill>
       </SiteNav>
 
       <main>
-        <Hero onPlay={play} />
+        <Hero onPlay={play} loggedIn={loggedIn} />
         <GamesPinned loggedIn={loggedIn} />
         <SignIn />
       </main>
@@ -48,30 +50,83 @@ export default function Landing() {
 
 /* ------------------------------------------------------------------ */
 
-function Hero({ onPlay }: { onPlay: () => void }) {
+/** Record-sleeve hero: the song is the point, the games are its tracks. */
+const SIDES = ["A1", "A2", "B1", "B2"];
+
+function Hero({ onPlay, loggedIn }: { onPlay: () => void; loggedIn: boolean }) {
+  const playing = useMusicStore((s) => s.playing);
+  const [track, setTrack] = useState(0);
+  const hrefFor = (slug: string) => (loggedIn ? `/play/${slug}` : "#giris");
+
   return (
-    <section className="mx-auto flex min-h-[calc(100svh-var(--nav-h)-40px)] max-w-[1280px] flex-col items-center justify-center px-5 pb-24 pt-14 text-center sm:px-10 narrow:pb-20 narrow:pt-10 short:min-h-0 short:pb-16 short:pt-10">
-      <h1 className="display text-[clamp(3.4rem,11.2vw,10.5rem)] narrow:text-[clamp(2.6rem,13.4vw,3.4rem)] short:text-[clamp(3rem,15dvh,4.6rem)]">
-        <span className="rise">
-          <span>Şarkı çalıyor.</span>
-        </span>
-        <span className="rise">
-          <span>
-            Şehir <span className="mark">senin</span>.
-          </span>
-        </span>
-      </h1>
+    <section className="relative isolate overflow-hidden">
+      {/* reeded glass over a soft red glow (full bleed behind the content) */}
+      <FlutedBackdrop className="-z-10" />
+      <div className="mx-auto grid min-h-[calc(100svh-var(--nav-h))] max-w-[1280px] items-center gap-x-14 gap-y-12 px-5 pb-20 pt-10 sm:px-10 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:pb-16 narrow:gap-y-10 narrow:px-4 narrow:pt-8 short:min-h-0">
+      <div className="min-w-0">
+        <p className="text-[17px] font-semibold narrow:text-[15px]">Bengü&apos;nün şarkısı, dört oyun, tek şehir</p>
+        <h1 className="display mt-3 whitespace-nowrap text-[clamp(5.6rem,15.5vw,13.5rem)] lg:text-[clamp(5.6rem,11.4vw,11.2rem)] narrow:text-[23vw]">
+          Saygımdan
+        </h1>
+        <p className="mt-7 max-w-[31rem] text-[clamp(1.05rem,1.45vw,1.25rem)] leading-[1.5] text-muted-ink narrow:mt-5 narrow:text-[16px]">
+          Şarkı döngüde çalarken gökdelenlerin arasında ağ at, gece meydanında drift yap, F-16 ile çatıları sıyır.
+          Kurulum yok, tarayıcında açılır.
+        </p>
+        <div className="mt-9 flex flex-wrap items-center gap-3 narrow:mt-7">
+          <Pill play onClick={onPlay}>
+            Oynamaya başla
+          </Pill>
+          <a href="#oyunlar" className="ghost">
+            Oyunlara bak
+          </a>
+        </div>
+      </div>
 
-      <p className="mt-8 max-w-[36rem] text-[clamp(1.05rem,1.6vw,1.3rem)] leading-[1.5] text-muted-ink animate-fade-up [animation-delay:0.5s] narrow:mt-6 narrow:text-[16px] short:mt-5">
-        Bengü&apos;nün Saygımdan&apos;ı arkada dönerken gökdelenlerin arasında ağ at, gece meydanında drift yap,
-        F-16 ile çatıları sıyır. Kurulum yok, tarayıcında açılır.
-      </p>
+      <div className="min-w-0">
+        <figure className="record mx-auto max-w-[34rem] lg:mx-0">
+          <RecordVinyl playing={playing} />
+          <div className="record-sleeve">
+            {GAMES.map((g, i) => (
+              <div
+                key={g.slug}
+                className="absolute inset-0 transition-opacity duration-300"
+                style={{ opacity: i === track ? 1 : 0 }}
+              >
+                <GameShot slug={g.slug} alt={i === track ? `${g.title} oyunundan bir kare` : ""} priority={i === 0} />
+              </div>
+            ))}
+            {/* printed on the sleeve, like a single's cover */}
+            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 to-transparent px-5 pb-4 pt-16 text-paper">
+              <div className="font-display text-[clamp(1.9rem,3.4vw,2.6rem)] font-black leading-[0.9] [font-stretch:62%]">
+                Saygımdan
+              </div>
+              <div className="mt-1 text-[14px] font-medium text-white/80">Bengü</div>
+            </div>
+          </div>
+          <figcaption className="sr-only">Plak kılıfı: seçili oyunun görüntüsü</figcaption>
+        </figure>
 
-      <div className="mt-10 flex flex-wrap items-center justify-center gap-3 animate-fade-up [animation-delay:0.65s] narrow:mt-8 short:mt-7">
-        <Pill onClick={onPlay}>Oynamaya başla</Pill>
-        <a href="#oyunlar" className="ghost">
-          Oyunlara bak
-        </a>
+        {/* the games as the record's tracklist; pointing at one swaps the sleeve art */}
+        <ol className="mx-auto mt-6 grid max-w-[34rem] grid-flow-col grid-cols-2 grid-rows-2 gap-x-6 lg:mx-0">
+          {GAMES.map((g, i) => (
+            <li key={g.slug}>
+              <Link
+                href={hrefFor(g.slug)}
+                onMouseEnter={() => setTrack(i)}
+                onFocus={() => setTrack(i)}
+                className={`flex items-baseline gap-3 border-t py-2.5 transition-colors ${
+                  i === track ? "border-ink text-ink" : "border-line text-muted-ink hover:text-ink"
+                }`}
+              >
+                <span className={`w-6 shrink-0 text-[13px] font-bold tabular-nums ${i === track ? "text-red" : ""}`}>
+                  {SIDES[i]}
+                </span>
+                <span className="text-[17px] font-semibold tracking-[-0.01em]">{g.title}</span>
+              </Link>
+            </li>
+          ))}
+        </ol>
+      </div>
       </div>
     </section>
   );
@@ -175,10 +230,8 @@ function GamesPinned({ loggedIn }: { loggedIn: boolean }) {
                   </div>
                 </div>
                 <span className="pill pill-sm pointer-events-none shrink-0">
+                  <PlayGlyph />
                   <span>Oyna</span>
-                  <span className="disc" aria-hidden>
-                    <ArrowGlyph />
-                  </span>
                 </span>
               </div>
             </Link>
@@ -207,10 +260,10 @@ function GamesPinned({ loggedIn }: { loggedIn: boolean }) {
   );
 }
 
-function ArrowGlyph() {
+function PlayGlyph() {
   return (
-    <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M5 12h14M13 6l6 6-6 6" />
+    <svg viewBox="0 0 24 24" className="size-3.5" fill="currentColor" aria-hidden>
+      <path d="M7 4.5v15l12.5-7.5z" />
     </svg>
   );
 }

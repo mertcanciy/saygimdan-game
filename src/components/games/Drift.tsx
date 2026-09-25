@@ -702,14 +702,14 @@ function NavArrow({ deg, label }: { deg: number; label: string }) {
   return (
     <div className="pointer-events-none absolute inset-x-0 top-4 flex justify-center short:top-3 narrow:top-[13.5rem]">
       <div className="flex items-center gap-2.5 rounded-full bg-[#0a0a0a]/80 py-1.5 pl-1.5 pr-4 text-white backdrop-blur">
-        <span className="grid size-8 place-items-center rounded-full bg-[#ffd400]">
+        <span className="grid size-8 place-items-center rounded-full bg-red text-white">
           <svg
             viewBox="0 0 24 24"
             className="size-5 transition-transform duration-100"
             style={{ transform: `rotate(${deg}deg)` }}
             aria-hidden
           >
-            <path d="M12 3 L20 19 L12 15 L4 19 Z" fill="#0a0a0a" />
+            <path d="M12 3 L20 19 L12 15 L4 19 Z" fill="currentColor" />
           </svg>
         </span>
         <span className="text-[14px] font-semibold tabular-nums">{label}</span>

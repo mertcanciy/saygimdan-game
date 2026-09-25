@@ -187,7 +187,7 @@ function usePress(btn: Btn) {
 
 type PadSize = "big" | "sec";
 
-/** Round thumb pad: glassy disc, icon + short label, yellow when pressed. */
+/** Round thumb pad: glassy disc, icon + short label, red when pressed. */
 function Pad({ btn, size, style, className = "" }: { btn: Btn; size: PadSize; style?: CSSProperties; className?: string }) {
   const { down, handlers } = usePress(btn);
   const Icon = btn.icon;
@@ -200,7 +200,7 @@ function Pad({ btn, size, style, className = "" }: { btn: Btn; size: PadSize; st
       style={{ width: `var(--tc-${size})`, height: `var(--tc-${size})`, ...style }}
       className={`pointer-events-auto flex touch-none select-none flex-col items-center justify-center gap-[2px] rounded-full font-semibold leading-none tracking-[-0.01em] backdrop-blur-md transition-[transform,background-color,box-shadow] duration-75 [-webkit-tap-highlight-color:transparent] [-webkit-touch-callout:none] ${
         down
-          ? "scale-90 bg-[#ffd400] text-[#0a0a0a] shadow-[0_0_0_4px_rgba(255,212,0,0.35)]"
+          ? "scale-90 bg-red text-white shadow-[0_0_0_4px_rgba(227,10,23,0.3)]"
           : big
             ? "bg-white/75 text-[#0a0a0a] shadow-[0_6px_18px_-8px_rgba(0,0,0,0.45)] ring-1 ring-white/70"
             : "bg-[#0a0a0a]/35 text-white shadow-[0_6px_18px_-10px_rgba(0,0,0,0.5)] ring-1 ring-white/45"
@@ -235,7 +235,7 @@ function Chip({ btn }: { btn: Btn }) {
       aria-label={btn.aria ?? btn.label}
       {...handlers}
       className={`pointer-events-auto inline-flex h-[clamp(34px,9.5dvh,40px)] touch-none select-none items-center justify-center gap-1.5 rounded-full px-3 text-[12.5px] narrow:size-10 narrow:px-0 font-semibold backdrop-blur-md transition-[transform,background-color] duration-75 [-webkit-tap-highlight-color:transparent] [-webkit-touch-callout:none] ${
-        down ? "scale-95 bg-[#ffd400] text-[#0a0a0a]" : "bg-white/80 text-[#0a0a0a] ring-1 ring-white/70"
+        down ? "scale-95 bg-red text-white" : "bg-white/80 text-[#0a0a0a] ring-1 ring-white/70"
       }`}
     >
       {Icon && <Icon aria-hidden className="size-3.5 narrow:size-4" strokeWidth={2.4} />}

@@ -1,18 +1,25 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight } from "lucide-react";
+import { Play } from "lucide-react";
 
 export function Wordmark({ className = "" }: { className?: string }) {
   return (
-    <Link href="/" className={`inline-flex items-baseline gap-[2px] text-[22px] font-extrabold tracking-[-0.05em] ${className}`}>
+    <Link
+      href="/"
+      className={`inline-flex items-center gap-[0.22em] font-display text-[25px] font-black leading-none tracking-[-0.01em] [font-stretch:68%] ${className}`}
+    >
+      {/* a tiny record: red label, white spindle hole */}
+      <span
+        aria-hidden
+        className="inline-block size-[0.62em] rounded-full bg-red [background-image:radial-gradient(circle,var(--paper)_0_16%,transparent_18%)] ring-[0.09em] ring-ink"
+      />
       saygımdan
-      <span aria-hidden className="inline-block size-[0.3em] rounded-full bg-yellow" />
     </Link>
   );
 }
 
-/** Black pill with the yellow arrow disc. Renders a Link when `href` is set. */
+/** Primary red button (optionally with a play glyph). Renders a Link when `href` is set. */
 export function Pill({
   children,
   href,
@@ -20,6 +27,7 @@ export function Pill({
   type = "button",
   small,
   disabled,
+  play,
 }: {
   children: React.ReactNode;
   href?: string;
@@ -27,14 +35,14 @@ export function Pill({
   type?: "button" | "submit";
   small?: boolean;
   disabled?: boolean;
+  /** leading ▶ for buttons that start a game or the song */
+  play?: boolean;
 }) {
   const cls = `pill ${small ? "pill-sm" : ""}`;
   const inner = (
     <>
+      {play && <Play aria-hidden className={`fill-current ${small ? "size-3.5" : "size-4"}`} strokeWidth={0} />}
       <span>{children}</span>
-      <span className="disc" aria-hidden>
-        <ArrowRight className={small ? "size-4" : "size-[18px]"} strokeWidth={2.2} />
-      </span>
     </>
   );
   if (href)

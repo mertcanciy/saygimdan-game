@@ -5,7 +5,7 @@ import { useIsTouch } from "./useDevice";
 
 /*
  * In-game HUD in the site's paper/ink language: white tiles, ink numbers,
- * the yellow highlighter for moments worth shouting about.
+ * the red label for moments worth shouting about.
  * `accent` is the game's colour and is used only as a small marker.
  */
 
@@ -41,7 +41,7 @@ export function HudStat({
         // phones: a small highlighter tag hanging off the tile, so the grid doesn't jump
         <div
           className={cn(
-            "text-[12px] font-medium text-[#0a0a0a] phone:absolute phone:-bottom-2 phone:right-1.5 phone:z-10 phone:rounded-full phone:bg-[#ffd400] phone:px-1.5 phone:text-[9.5px] phone:font-semibold phone:leading-[1.45] phone:whitespace-nowrap",
+            "text-[12px] font-medium text-[#0a0a0a] phone:absolute phone:-bottom-2 phone:right-1.5 phone:z-10 phone:rounded-full phone:bg-red phone:text-white phone:px-1.5 phone:text-[9.5px] phone:font-semibold phone:leading-[1.45] phone:whitespace-nowrap",
             sub === "—" && "phone:hidden"
           )}
         >
@@ -99,7 +99,7 @@ export function HudHint({ text, touchText }: { text: string; touchText?: string 
   );
 }
 
-/** Big banner (DRIFT!, Makas!, +100): ink type on the yellow highlighter. */
+/** Big banner (DRIFT!, Makas!, +100): white type on the red label. */
 export function HudBanner({
   text,
   sub,
@@ -118,7 +118,7 @@ export function HudBanner({
       key={keyId}
       className={cn("pointer-events-none absolute inset-x-0 top-[20%] flex flex-col items-center animate-pop short:top-[24%]", className)}
     >
-      <span className="bg-[#ffd400] px-3 text-[clamp(1.6rem,5vw,3.8rem)] font-extrabold leading-[1.05] tracking-[-0.05em] text-[#0a0a0a]">
+      <span className="bg-red px-3 font-display text-[clamp(1.8rem,5.6vw,4.2rem)] font-black leading-[1.05] tracking-[-0.01em] text-white [font-stretch:70%]">
         {text}
       </span>
       {sub && (
@@ -157,7 +157,7 @@ export function HudModal({
           </div>
         ))}
         {hint && (
-          <div className="mt-4 inline-block rounded-full bg-[#ffd400] px-3.5 py-1.5 text-[13px] font-semibold">{hint}</div>
+          <div className="mt-4 inline-block rounded-full bg-red px-3.5 py-1.5 text-[13px] font-semibold text-white">{hint}</div>
         )}
       </div>
     </div>
@@ -191,7 +191,7 @@ export function HudEdge({ show, text = "Şehrin sınırı. Geri dön." }: { show
   return (
     <div className="pointer-events-none absolute inset-x-0 top-[34%] flex justify-center px-4 animate-fade-up">
       <span className="flex items-center gap-2.5 rounded-full bg-[#0a0a0a]/85 py-2 pl-2 pr-4 text-[14px] font-semibold text-white backdrop-blur phone:gap-2 phone:py-1.5 phone:pl-1.5 phone:pr-3.5 phone:text-[12.5px]">
-        <span aria-hidden className="grid size-7 shrink-0 place-items-center rounded-full bg-[#ffd400] text-[15px] font-extrabold text-[#0a0a0a] phone:size-6 phone:text-[13px]">
+        <span aria-hidden className="grid size-7 shrink-0 place-items-center rounded-full bg-red text-[15px] font-extrabold text-white phone:size-6 phone:text-[13px]">
           !
         </span>
         {text}

@@ -38,10 +38,15 @@ interface MusicState {
   /** set once the visitor has pressed play somewhere (browsers need a gesture) */
   started: boolean;
   start: () => void;
+  /** the song is audible right now (mirrored from the dock) */
+  playing: boolean;
+  setPlaying: (playing: boolean) => void;
 }
 
 /** Global song state: the dock lives in the root layout so the song keeps playing across pages. */
 export const useMusicStore = create<MusicState>()((set) => ({
   started: false,
   start: () => set({ started: true }),
+  playing: false,
+  setPlaying: (playing) => set({ playing }),
 }));

@@ -121,7 +121,7 @@ export default function PlayShell({ game }: { game: GameInfo }) {
                   <ul className="mt-6 grid gap-1.5 text-[14px] text-ink short:mt-0 short:gap-1 short:text-[12.5px] short:leading-[1.35]">
                     {TOUCH_HELP[game.slug].map((line) => (
                       <li key={line} className="flex gap-2">
-                        <span aria-hidden className="mt-[0.45em] size-1.5 shrink-0 rounded-full bg-yellow" />
+                        <span aria-hidden className="mt-[0.45em] size-1.5 shrink-0 rounded-full bg-red" />
                         {line}
                       </li>
                     ))}
@@ -130,7 +130,7 @@ export default function PlayShell({ game }: { game: GameInfo }) {
                   <ControlsList game={game} className="mt-6 short:mt-0" />
                 )}
                 <div className="mt-8 short:mt-3 narrow:mt-6">
-                  <Pill onClick={begin} small={touch}>
+                  <Pill play onClick={begin} small={touch}>
                     Başlat
                   </Pill>
                 </div>

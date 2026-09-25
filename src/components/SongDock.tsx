@@ -38,6 +38,9 @@ export default function SongDock() {
   const ytContainerRef = useRef<HTMLDivElement | null>(null);
   const [mode, setMode] = useState<Mode>("idle");
   const [playing, setPlaying] = useState(false);
+  const setStorePlaying = useMusicStore((s) => s.setPlaying);
+  // let the rest of the site (the landing's record) know whether the song is on
+  useEffect(() => setStorePlaying(playing), [playing, setStorePlaying]);
   const [volume, setVolume] = useState(0.8);
   const [muted, setMuted] = useState(false);
   const volRef = useRef(volume);
@@ -195,7 +198,7 @@ export default function SongDock() {
         onClick={toggle}
         disabled={mode === "loading" || mode === "missing"}
         aria-label={playing ? "Duraklat" : "Çal"}
-        className={`relative grid shrink-0 place-items-center rounded-full bg-yellow text-ink transition-transform active:scale-95 disabled:opacity-60 ${
+        className={`relative grid shrink-0 place-items-center rounded-full bg-red text-paper transition-[transform,background-color] hover:bg-red-deep active:scale-95 disabled:opacity-60 ${
           compact ? "size-9" : "size-10"
         }`}
       >
