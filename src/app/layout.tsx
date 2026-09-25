@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Archivo, Schibsted_Grotesk, JetBrains_Mono } from "next/font/google";
+import { Analytics } from "@vercel/analytics/next";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import SongDock from "@/components/SongDock";
 import "./globals.css";
 
@@ -36,6 +38,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body suppressHydrationWarning>
         {children}
         <SongDock />
+        {/* page views (cookieless) + real-user performance, shown in the Vercel dashboard */}
+        <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   );
