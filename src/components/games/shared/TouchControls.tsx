@@ -46,7 +46,7 @@ const LAYOUTS: Record<GameSlug, Layout> = {
     ],
     top: [
       { code: "KeyC", label: "Kamera", tap: true },
-      { code: "KeyR", label: "Sıfırla", tap: true },
+      { code: "KeyR", label: "Son kapı", tap: true },
     ],
   },
   f16: {
@@ -85,7 +85,7 @@ const LAYOUTS: Record<GameSlug, Layout> = {
 /** Help lines shown on the start sheet when playing by touch. */
 export const TOUCH_HELP: Record<GameSlug, string[]> = {
   spiderman: ["Sol joystick: koş / havada yönlen", "Ağ: basılı tut, sallan; bırak, uç", "Ekranı sürükle: etrafa bak"],
-  drift: ["Sol tuşlar: direksiyon", "Gaz, fren, el freni sağda", "El freniyle gir, gazla tut"],
+  drift: ["Sol tuşlar: direksiyon", "Hızlıyken el frenine dokun: drift", "Gazı bırak: araç toparlar"],
   f16: ["Ekranı sürükle: nişan al, uçak oraya döner", "Sağda gaz ve afterburner", "Solda dümen (◀ ▶) ve tonoz"],
   traffic: ["Sol tuşlar: şerit değiştir", "Sağda gaz, fren, nitro", "Üstte selektör ve korna"],
 };

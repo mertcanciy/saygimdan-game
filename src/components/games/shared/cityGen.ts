@@ -522,3 +522,48 @@ export function randomRoadPoint(
   const t = city.bounds.min + margin + rand() * (city.size - margin * 2);
   return r.axis === "x" ? { x: t, z: r.pos, axis: "x" } : { x: r.pos, z: t, axis: "z" };
 }
+
+/* ------------------------------------------------------------------ */
+/* Play-area boundary                                                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The playable square is the street grid: the concrete barrier (rendered by
+ * <City>) runs along its edge at ±bounds.max. Everything beyond is scenery.
+ */
+export const BOUNDARY_WARN = 45; // metres from the edge where games should warn
+
+/** Distance (m) from (x, z) to the nearest edge of the play area (negative = outside). */
+export function distanceToEdge(x: number, z: number, city: CityData): number {
+  const m = city.bounds.max;
+  return Math.min(m - Math.abs(x), m - Math.abs(z));
+}
+
+/**
+ * Keep a circle of `radius` inside the play area. Mutates `p`; returns the
+ * outward normal of the wall that was hit (or null) so callers can bounce /
+ * kill velocity along it.
+ */
+export function clampToPlayArea(
+  p: { x: number; z: number },
+  city: CityData,
+  radius = 0.5
+): { nx: number; nz: number } | null {
+  const lim = city.bounds.max - 0.8 - radius; // barrier is ~0.8 m thick on the inside
+  let hit: { nx: number; nz: number } | null = null;
+  if (p.x > lim) {
+    p.x = lim;
+    hit = { nx: 1, nz: 0 };
+  } else if (p.x < -lim) {
+    p.x = -lim;
+    hit = { nx: -1, nz: 0 };
+  }
+  if (p.z > lim) {
+    p.z = lim;
+    hit = { nx: 0, nz: 1 };
+  } else if (p.z < -lim) {
+    p.z = -lim;
+    hit = { nx: 0, nz: -1 };
+  }
+  return hit;
+}

@@ -10,7 +10,7 @@ import { useKeys, makeEdge } from "./shared/useKeys";
 import { usePointerLook } from "./shared/usePointerLook";
 import Rings, { type RingData, ringHit } from "./shared/Rings";
 import Particles, { type ParticleHandle } from "./shared/Particles";
-import { HudStat, HudCenter, HudBanner, HudModal, HudBar, HudHint } from "./shared/GameHud";
+import { HudStat, HudCenter, HudBanner, HudModal, HudBar, HudHint, HudEdge } from "./shared/GameHud";
 import Jet, { makeJetControls } from "./f16/Jet";
 import Cockpit, { EYE, makeHudData } from "./f16/Cockpit";
 import Explosion, { type ExplosionHandle } from "./f16/Explosion";
@@ -102,6 +102,7 @@ interface Hud {
   bannerText: string;
   stall: boolean;
   g: number;
+  edge: boolean;
 }
 
 interface PhotoOpts {
@@ -619,8 +620,10 @@ function F16Scene({
         bannerText: s.bannerText,
         stall: s.stall,
         g: Math.round(s.g * 10) / 10,
+        // past the street grid: the jet is being turned back towards the city
+        edge: Math.max(Math.abs(s.pos.x), Math.abs(s.pos.z)) > city.bounds.max + 120,
       };
-      const key = `${nh.speed}|${nh.alt}|${nh.throttle}|${nh.crashed}|${nh.cockpit}|${nh.score}|${nh.rings}|${nh.combo}|${nh.lowPass}|${nh.afterburner}|${nh.bannerId}|${nh.stall}|${nh.g}`;
+      const key = `${nh.speed}|${nh.alt}|${nh.throttle}|${nh.crashed}|${nh.cockpit}|${nh.score}|${nh.rings}|${nh.combo}|${nh.lowPass}|${nh.afterburner}|${nh.bannerId}|${nh.stall}|${nh.g}|${nh.edge}`;
       if (key !== s.lastHud) {
         s.lastHud = key;
         onHud(nh);
@@ -825,6 +828,7 @@ export default function F16({ started }: { started: boolean }) {
     bannerText: "",
     stall: false,
     g: 1,
+    edge: false,
   });
   const photoMode = useMemo(() => readPhoto() !== null, []);
   const reticle = useRef<{ aim: HTMLDivElement | null; nose: HTMLDivElement | null }>({ aim: null, nose: null });
@@ -874,6 +878,7 @@ export default function F16({ started }: { started: boolean }) {
         <HudBar label="Gaz" value={hud.throttle} accent="#f97316" />
       </div>
       {hud.bannerId > 0 && <HudBanner keyId={hud.bannerId} text={hud.bannerText} accent="#0ea5e9" />}
+      <HudEdge show={started && !photoMode && !hud.crashed && hud.edge} text="Şehrin dışındasın, uçak geri dönüyor." />
       {hud.crashed && !photoMode && (
         <HudModal
           title="Çakıldın!"

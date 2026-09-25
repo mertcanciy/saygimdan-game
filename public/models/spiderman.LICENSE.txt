@@ -1,0 +1,11 @@
+spiderman.glb — hero model + animations
+
+Character mesh: "Superhero_Male" from Universal Base Characters by Quaternius
+  https://quaternius.com/packs/universalbasecharacters.html
+Animations: Universal Animation Library 1 & 2 by Quaternius
+  https://quaternius.com/packs/universalanimationlibrary.html
+License: CC0 1.0 Universal (public domain) — https://creativecommons.org/publicdomain/zero/1.0/
+
+Optimised with gltf-transform (hair/eyes/textures stripped, normal map 1024 WebP,
+unused tracks removed, keyframes resampled, meshopt compression). The Spider suit
+is drawn procedurally at runtime (src/components/games/spiderman/suitMaterial.ts).

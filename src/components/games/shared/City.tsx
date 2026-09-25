@@ -128,7 +128,7 @@ export default function City({
   // ---------- ground + road markings ----------
   const groundMat = useMemo(() => {
     const t = asphaltTexture().clone();
-    const s = city.size + 12000;
+    const s = city.size + 4;
     t.repeat.set(s / 8, s / 8);
     t.needsUpdate = true;
     return new THREE.MeshStandardMaterial({ map: t, roughness: 0.93, metalness: 0, color: "#ffffff" });
@@ -165,10 +165,12 @@ export default function City({
   );
   const markRef = useRef<THREE.InstancedMesh>(null);
   useInstanceLayout(markRef, segments, (s, o) => {
-    o.position.set(s.x, 0.015, s.z);
+    o.position.set(s.x, 0.02, s.z);
     o.rotation.set(-Math.PI / 2, 0, s.rotY);
   });
 
+  // outskirts: four bands that butt up against the street grid's ground plane
+  // (same height, no overlap — overlapping coplanar planes z-fight/flicker)
   const outskirts = useMemo(() => {
     const half = city.size / 2 + 2;
     const far = 6000;
@@ -181,43 +183,40 @@ export default function City({
       { x: half + band / 2, z: 0, w: band, d: half * 2 },
     ];
   }, [city.size]);
-  const outskirtMat = useMemo(() => {
-    const t = pavingTexture().clone();
-    t.repeat.set(1500, 1500);
-    t.needsUpdate = true;
-    return new THREE.MeshStandardMaterial({ map: t, color: "#b9b6ae", roughness: 0.95 });
-  }, []);
+  // plain colour: a finely repeated texture this far out only shimmers
+  const outskirtMat = useMemo(() => new THREE.MeshStandardMaterial({ color: "#7d7b76", roughness: 0.97 }), []);
 
   // ---------- sidewalks / parks ----------
+  // one box per block: concrete curb sides with the paving on its top face
+  // (a separate paving plane 2 mm above the box top used to z-fight)
   const curbRef = useRef<THREE.InstancedMesh>(null);
-  const paveRef = useRef<THREE.InstancedMesh>(null);
   const parkRef = useRef<THREE.InstancedMesh>(null);
   useInstanceLayout(curbRef, city.blockCenters, (c, o) => {
     o.position.set(c.x, 0.09, c.z);
     o.scale.set(city.blockSize, 0.18, city.blockSize);
   });
-  useInstanceLayout(paveRef, city.blockCenters, (c, o) => {
-    o.position.set(c.x, 0.182, c.z);
-    o.rotation.set(-Math.PI / 2, 0, 0);
-    o.scale.set(city.blockSize - 0.5, city.blockSize - 0.5, 1);
-  });
+  // parks are raised 12 cm planters with a grass top
   useInstanceLayout(parkRef, city.parks, (p, o) => {
-    o.position.set(p.x, 0.19, p.z);
-    o.rotation.set(-Math.PI / 2, 0, 0);
-    o.scale.set(p.w, p.d, 1);
+    o.position.set(p.x, 0.24, p.z);
+    o.scale.set(p.w, 0.12, p.d);
   });
+  const curbMat = useMemo(() => new THREE.MeshStandardMaterial({ color: "#a3a19b", roughness: 0.9 }), []);
+  const planterMat = useMemo(() => new THREE.MeshStandardMaterial({ color: "#8d8a83", roughness: 0.92 }), []);
   const paveMat = useMemo(() => {
     const t = pavingTexture().clone();
     t.repeat.set(city.blockSize / 2, city.blockSize / 2);
     t.needsUpdate = true;
     return new THREE.MeshStandardMaterial({ map: t, roughness: 0.9 });
   }, [city.blockSize]);
+  // BoxGeometry face order: +x, -x, +y (top), -y, +z, -z
+  const blockMats = useMemo(() => [curbMat, curbMat, paveMat, curbMat, curbMat, curbMat], [curbMat, paveMat]);
   const grassMat = useMemo(() => {
     const t = grassTexture().clone();
     t.repeat.set(city.blockSize / 4, city.blockSize / 4);
     t.needsUpdate = true;
     return new THREE.MeshStandardMaterial({ map: t, roughness: 1 });
   }, [city.blockSize]);
+  const parkMats = useMemo(() => [planterMat, planterMat, grassMat, planterMat, planterMat, planterMat], [planterMat, grassMat]);
 
   // ---------- lamps ----------
   const lamp = lampGeometries();
@@ -271,14 +270,13 @@ export default function City({
 
   return (
     <group>
-      {/* ground (asphalt everywhere; sidewalks sit on top) */}
+      {/* ground: asphalt over the street grid only; the outskirts bands continue it */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow material={groundMat}>
-        <planeGeometry args={[city.size + 12000, city.size + 12000]} />
+        <planeGeometry args={[city.size + 4, city.size + 4]} />
       </mesh>
 
-      {/* outskirts: paved ground around the street grid so the skyline doesn't stand in a parking lot */}
       {outskirts.map((o, i) => (
-        <mesh key={i} rotation={[-Math.PI / 2, 0, 0]} position={[o.x, 0.012, o.z]} material={outskirtMat} receiveShadow>
+        <mesh key={i} rotation={[-Math.PI / 2, 0, 0]} position={[o.x, 0, o.z]} material={outskirtMat} receiveShadow>
           <planeGeometry args={[o.w, o.d]} />
         </mesh>
       ))}
@@ -287,16 +285,12 @@ export default function City({
         <planeGeometry args={[city.blockSize, city.roadWidth]} />
       </instancedMesh>
 
-      {/* sidewalks: curb slab + paving top */}
-      <instancedMesh ref={curbRef} args={[undefined, undefined, n(city.blockCenters.length)]} receiveShadow>
+      {/* sidewalks: one box per block, paving on top */}
+      <instancedMesh ref={curbRef} args={[undefined, undefined, n(city.blockCenters.length)]} material={blockMats} receiveShadow>
         <boxGeometry args={[1, 1, 1]} />
-        <meshStandardMaterial color="#a3a19b" roughness={0.9} />
       </instancedMesh>
-      <instancedMesh ref={paveRef} args={[undefined, undefined, n(city.blockCenters.length)]} material={paveMat} receiveShadow>
-        <planeGeometry args={[1, 1]} />
-      </instancedMesh>
-      <instancedMesh ref={parkRef} args={[undefined, undefined, n(city.parks.length)]} material={grassMat} receiveShadow>
-        <planeGeometry args={[1, 1]} />
+      <instancedMesh ref={parkRef} args={[undefined, undefined, n(city.parks.length)]} material={parkMats} receiveShadow>
+        <boxGeometry args={[1, 1, 1]} />
       </instancedMesh>
 
       {/* buildings */}
@@ -326,6 +320,7 @@ export default function City({
       </instancedMesh>
 
       <Trees trees={city.trees} />
+      <BoundaryWall city={city} night={night} />
 
       {/* street lamps */}
       <instancedMesh ref={poleRef} args={[lamp.pole, undefined, n(city.lamps.length)]} castShadow>
@@ -453,5 +448,190 @@ function Trees({ trees }: { trees: CityData["trees"] }) {
         <meshStandardMaterial color="#ffffff" roughness={0.9} />
       </instancedMesh>
     </>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Play-area boundary: red/white jersey barriers, a chain-link fence    */
+/* above them and hazard chevron boards, all along ±bounds.max.         */
+/* ------------------------------------------------------------------ */
+
+const SEG = 4; // barrier segment length (m)
+
+function jerseyGeometry(): THREE.BufferGeometry {
+  // classic New-Jersey profile, 0.6 m wide at the foot, 0.9 m tall
+  const sh = new THREE.Shape();
+  sh.moveTo(-0.3, 0);
+  sh.lineTo(0.3, 0);
+  sh.lineTo(0.26, 0.08);
+  sh.lineTo(0.12, 0.3);
+  sh.lineTo(0.1, 0.9);
+  sh.lineTo(-0.1, 0.9);
+  sh.lineTo(-0.12, 0.3);
+  sh.lineTo(-0.26, 0.08);
+  sh.closePath();
+  const g = new THREE.ExtrudeGeometry(sh, { depth: SEG - 0.06, bevelEnabled: false });
+  g.translate(0, 0, -(SEG - 0.06) / 2);
+  g.computeVertexNormals();
+  return g;
+}
+
+function fenceTexture(): THREE.CanvasTexture {
+  const c = document.createElement("canvas");
+  c.width = 64;
+  c.height = 64;
+  const g = c.getContext("2d")!;
+  g.clearRect(0, 0, 64, 64);
+  g.strokeStyle = "rgba(200,205,210,0.95)";
+  g.lineWidth = 2.5;
+  g.beginPath();
+  g.moveTo(0, 0);
+  g.lineTo(64, 64);
+  g.moveTo(64, 0);
+  g.lineTo(0, 64);
+  g.stroke();
+  const t = new THREE.CanvasTexture(c);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  return t;
+}
+
+function chevronTexture(): THREE.CanvasTexture {
+  const c = document.createElement("canvas");
+  c.width = 256;
+  c.height = 128;
+  const g = c.getContext("2d")!;
+  g.fillStyle = "#ffd400";
+  g.fillRect(0, 0, 256, 128);
+  g.fillStyle = "#0a0a0a";
+  for (let i = -1; i < 6; i++) {
+    g.beginPath();
+    g.moveTo(i * 52, 0);
+    g.lineTo(i * 52 + 26, 0);
+    g.lineTo(i * 52 + 52, 64);
+    g.lineTo(i * 52 + 26, 128);
+    g.lineTo(i * 52, 128);
+    g.lineTo(i * 52 + 26, 64);
+    g.closePath();
+    g.fill();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+function BoundaryWall({ city, night }: { city: CityData; night: number }) {
+  const m = city.bounds.max;
+  const inner = m - 0.4; // barrier centre line (its inner face is ~0.8 m inside the edge)
+
+  const barriers = useMemo(() => {
+    const out: { x: number; z: number; rotY: number; i: number }[] = [];
+    const n = Math.floor((2 * m) / SEG);
+    const start = -m + (2 * m - n * SEG) / 2 + SEG / 2;
+    for (let k = 0; k < n; k++) {
+      const t = start + k * SEG;
+      out.push({ x: t, z: inner, rotY: Math.PI / 2, i: k });
+      out.push({ x: t, z: -inner, rotY: Math.PI / 2, i: k + 1 });
+      out.push({ x: inner, z: t, rotY: 0, i: k });
+      out.push({ x: -inner, z: t, rotY: 0, i: k + 1 });
+    }
+    return out;
+  }, [m, inner]);
+
+  const signs = useMemo(() => {
+    const out: { x: number; z: number; rotY: number }[] = [];
+    const step = 22;
+    for (let t = -m + 11; t < m - 5; t += step) {
+      out.push({ x: t, z: inner - 0.05, rotY: Math.PI }); // faces -z (inwards)
+      out.push({ x: t, z: -inner + 0.05, rotY: 0 });
+      out.push({ x: inner - 0.05, z: t, rotY: -Math.PI / 2 });
+      out.push({ x: -inner + 0.05, z: t, rotY: Math.PI / 2 });
+    }
+    return out;
+  }, [m, inner]);
+
+  const barrierGeo = useMemo(() => jerseyGeometry(), []);
+  const barrierRef = useRef<THREE.InstancedMesh>(null);
+  useInstanceLayout(
+    barrierRef,
+    barriers,
+    (b, o) => {
+      o.position.set(b.x, 0, b.z);
+      o.rotation.set(0, b.rotY, 0);
+    },
+    (b, c) => (b.i % 2 === 0 ? c.set("#c8322a") : c.set("#e9e7e2"))
+  );
+
+  const signRef = useRef<THREE.InstancedMesh>(null);
+  useInstanceLayout(signRef, signs, (sg, o) => {
+    o.position.set(sg.x, 1.55, sg.z);
+    o.rotation.set(0, sg.rotY, 0);
+  });
+  const postRef = useRef<THREE.InstancedMesh>(null);
+  useInstanceLayout(postRef, signs, (sg, o) => {
+    o.position.set(sg.x - Math.sin(sg.rotY) * 0.08, 1.0, sg.z - Math.cos(sg.rotY) * 0.08);
+  });
+
+  const mats = useMemo(() => {
+    const fence = fenceTexture();
+    fence.repeat.set((2 * m) / 1.2, 3 / 1.2);
+    return {
+      // a little self-illumination at night so the edge still reads in the dark
+      barrier: new THREE.MeshStandardMaterial({
+        color: "#ffffff",
+        roughness: 0.75,
+        emissive: new THREE.Color().setScalar(night * 0.05),
+      }),
+      fence: new THREE.MeshStandardMaterial({
+        map: fence,
+        transparent: true,
+        alphaTest: 0.35,
+        side: THREE.DoubleSide,
+        roughness: 0.5,
+        metalness: 0.6,
+      }),
+      rail: new THREE.MeshStandardMaterial({ color: "#8b9096", roughness: 0.4, metalness: 0.8 }),
+      sign: new THREE.MeshStandardMaterial({
+        map: chevronTexture(),
+        emissive: "#ffd400",
+        emissiveIntensity: 0.12 + night * 0.35,
+        roughness: 0.5,
+      }),
+      post: new THREE.MeshStandardMaterial({ color: "#3b3e42", roughness: 0.5, metalness: 0.6 }),
+    };
+  }, [m, night]);
+
+  const sides = useMemo(
+    () => [
+      { x: 0, z: inner, rotY: 0 },
+      { x: 0, z: -inner, rotY: 0 },
+      { x: inner, z: 0, rotY: Math.PI / 2 },
+      { x: -inner, z: 0, rotY: Math.PI / 2 },
+    ],
+    [inner]
+  );
+
+  return (
+    <group>
+      <instancedMesh ref={barrierRef} args={[barrierGeo, mats.barrier, barriers.length]} castShadow receiveShadow />
+      {/* chain-link fence + top rail above the barriers */}
+      {sides.map((sd, i) => (
+        <group key={i} position={[sd.x, 0, sd.z]} rotation={[0, sd.rotY, 0]}>
+          <mesh position={[0, 2.4, 0]} material={mats.fence}>
+            <planeGeometry args={[2 * m, 3]} />
+          </mesh>
+          <mesh position={[0, 3.9, 0]} rotation={[0, 0, Math.PI / 2]} material={mats.rail}>
+            <cylinderGeometry args={[0.04, 0.04, 2 * m, 6]} />
+          </mesh>
+        </group>
+      ))}
+      <instancedMesh ref={signRef} args={[undefined, mats.sign, Math.max(1, signs.length)]}>
+        <planeGeometry args={[1.6, 0.8]} />
+      </instancedMesh>
+      <instancedMesh ref={postRef} args={[undefined, mats.post, Math.max(1, signs.length)]}>
+        <boxGeometry args={[0.08, 2.0, 0.08]} />
+      </instancedMesh>
+    </group>
   );
 }

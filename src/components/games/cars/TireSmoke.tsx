@@ -5,7 +5,7 @@
 // ground, and a simple lighting term so smoke picks up the night colours
 // instead of reading as flat grey (or black) blobs.
 
-import { forwardRef, useImperativeHandle, useMemo } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useMemo } from "react";
 import * as THREE from "three";
 import { useFrame } from "@react-three/fiber";
 
@@ -161,6 +161,15 @@ const TireSmoke = forwardRef<
       cursor: 0,
     };
   }, [count, color, fogColor, fogDensity]);
+
+  useEffect(
+    () => () => {
+      data.geo.dispose();
+      data.mat.dispose();
+      (data.mat.uniforms.uMap.value as THREE.Texture).dispose();
+    },
+    [data]
+  );
 
   useImperativeHandle(ref, () => ({
     emit(x, y, z, vx, vy, vz, size, life, alpha = 0.5) {

@@ -5,14 +5,24 @@ import * as THREE from "three";
 import { Canvas, useFrame } from "@react-three/fiber";
 import City from "./shared/City";
 import { WorldAtmosphere, WorldEffects, CANVAS_GL } from "./shared/World";
-import { generateCity, aabbCollide, raycastBuildings, groundHeightAt, mulberry32, type CityData } from "./shared/cityGen";
+import {
+  generateCity,
+  aabbCollide,
+  raycastBuildings,
+  groundHeightAt,
+  mulberry32,
+  clampToPlayArea,
+  distanceToEdge,
+  BOUNDARY_WARN,
+  type CityData,
+} from "./shared/cityGen";
 import { useKeys, makeEdge } from "./shared/useKeys";
 import { usePointerLook } from "./shared/usePointerLook";
 import Rings, { type RingData } from "./shared/Rings";
 import Particles, { type ParticleHandle } from "./shared/Particles";
-import { HudStat, HudCenter, HudBanner, HudHint } from "./shared/GameHud";
+import { HudStat, HudCenter, HudBanner, HudHint, HudEdge } from "./shared/GameHud";
 import { getGame } from "@/lib/games";
-import { buildHero, PELVIS_HEIGHT, type HeroRig } from "./spiderman/heroModel";
+import { loadHero, PELVIS_HEIGHT, type HeroRig } from "./spiderman/heroModel";
 import { HeroAnimator, Mode, type AnimInput } from "./spiderman/heroAnim";
 import { WebRibbon } from "./spiderman/webLine";
 
@@ -43,6 +53,7 @@ const _bodyUp = new THREE.Vector3();
 const _bodyFwd = new THREE.Vector3();
 const _origin = new THREE.Vector3();
 const _best = new THREE.Vector3();
+const _rp = new THREE.Vector3();
 
 interface Hud {
   speed: number;
@@ -54,6 +65,7 @@ interface Hud {
   combo: number;
   bannerId: number;
   bannerText: string;
+  edge: boolean;
 }
 
 /* ---------- spawn + rings along streets ---------- */
@@ -164,11 +176,12 @@ function makeAnimInput(): AnimInput {
     mode: Mode.Ground,
     speed: 0,
     vy: 0,
+    impact: 0,
     anchor: null,
     hand: 1,
+    webT: 0,
     swingPhase: 0.5,
     flip: -1,
-    land: 0,
     dive: false,
     up: new THREE.Vector3(0, 1, 0),
     fwd: new THREE.Vector3(0, 0, -1),
@@ -209,14 +222,27 @@ function SpidermanScene({ started, onHud }: { started: boolean; onHud: (h: Hud) 
   useEffect(() => {
     const parent = holder.current;
     if (!parent) return;
-    const rig = buildHero();
-    const g: Gfx = { rig, anim: new HeroAnimator(rig), web: new WebRibbon(), animIn: makeAnimInput() };
-    parent.add(rig.root, g.web.mesh);
-    gfx.current = g;
+    let alive = true;
+    let g: Gfx | null = null;
+    loadHero()
+      .then((rig) => {
+        if (!alive) {
+          rig.dispose();
+          return;
+        }
+        g = { rig, anim: new HeroAnimator(rig), web: new WebRibbon(), animIn: makeAnimInput() };
+        parent.add(rig.root, g.web.mesh);
+        gfx.current = g;
+      })
+      .catch((e) => console.error("spiderman: hero failed to load", e));
     return () => {
-      parent.remove(rig.root, g.web.mesh);
-      rig.dispose();
-      g.web.dispose();
+      alive = false;
+      if (g) {
+        parent.remove(g.rig.root, g.web.mesh);
+        g.anim.dispose();
+        g.rig.dispose();
+        g.web.dispose();
+      }
       gfx.current = null;
     };
   }, []);
@@ -228,6 +254,10 @@ function SpidermanScene({ started, onHud }: { started: boolean; onHud: (h: Hud) 
 
   const st = useRef({
     pos: new THREE.Vector3(spawn.x, 0, spawn.z),
+    /** physics state before the last substep (render interpolation) */
+    prevPos: new THREE.Vector3(spawn.x, 0, spawn.z),
+    /** interpolated position used for rendering + camera */
+    renderPos: new THREE.Vector3(spawn.x, 0, spawn.z),
     vel: new THREE.Vector3(),
     web: null as { anchor: THREE.Vector3; len: number; maxLen: number; t: number; hand: 0 | 1 } | null,
     holding: false,
@@ -253,20 +283,22 @@ function SpidermanScene({ started, onHud }: { started: boolean; onHud: (h: Hud) 
     facing: Math.PI, // hero yaw (atan2(x,z)); π → facing -Z
     flipT: -1,
     releases: 0,
-    landT: 0,
     lastHand: 1 as 0 | 1,
     camSmooth: new THREE.Vector3(spawn.x, COM_H, spawn.z),
     time: 0,
     camColl: 99,
+    edge: false,
     /** dev/test only: fixed camera distance / yaw offset (0 = off) */
     dbgDist: 0,
     dbgYaw: 0,
+    /** dev/test only: slow-motion factor (0 = off) */
+    dbgTime: 0,
   });
 
   // dev-only debug handle for headless tests
   useEffect(() => {
     if (process.env.NODE_ENV !== "production") {
-      (window as unknown as { __spider?: unknown }).__spider = { st: st.current, city };
+      (window as unknown as { __spider?: unknown }).__spider = { st: st.current, city, gfx };
     }
   }, [city]);
 
@@ -322,6 +354,10 @@ function SpidermanScene({ started, onHud }: { started: boolean; onHud: (h: Hud) 
     // no building in reach (open sky / high above roofs): forgiving sky anchor
     if (s.pos.y > 150) return false;
     out.set(_origin.x + hx * 24, _origin.y + 30, _origin.z + hz * 24);
+    // never let a sky anchor pull the hero out of the play area
+    const lim = city.bounds.max - 25;
+    out.x = THREE.MathUtils.clamp(out.x, -lim, lim);
+    out.z = THREE.MathUtils.clamp(out.z, -lim, lim);
     return true;
   };
 
@@ -379,6 +415,8 @@ function SpidermanScene({ started, onHud }: { started: boolean; onHud: (h: Hud) 
   const reset = () => {
     const s = st.current;
     s.pos.set(spawn.x, 0, spawn.z);
+    s.prevPos.copy(s.pos);
+    s.renderPos.copy(s.pos);
     s.vel.set(0, 0, 0);
     s.web = null;
     s.holding = false;
@@ -423,9 +461,10 @@ function SpidermanScene({ started, onHud }: { started: boolean; onHud: (h: Hud) 
         // touchdown
         const impact = s.fallSpeed;
         if (impact > 13) {
-          s.landT = Math.min(1, 0.45 + impact / 45);
-          s.vel.x *= 0.35;
-          s.vel.z *= 0.35;
+          // fast forward landings roll out (keep momentum), slow ones plant
+          const keep = Math.hypot(s.vel.x, s.vel.z) > 12 ? 0.7 : 0.35;
+          s.vel.x *= keep;
+          s.vel.z *= keep;
           for (let i = 0; i < 16; i++) {
             const a2 = (i / 16) * Math.PI * 2;
             _tmp2.set(Math.cos(a2) * 5, 0.6 + Math.random(), Math.sin(a2) * 5);
@@ -515,9 +554,19 @@ function SpidermanScene({ started, onHud }: { started: boolean; onHud: (h: Hud) 
       s.pos.y = 0;
       s.vel.y = Math.max(0, s.vel.y);
     }
-    const b = city.bounds.max + 40;
-    s.pos.x = THREE.MathUtils.clamp(s.pos.x, -b, b);
-    s.pos.z = THREE.MathUtils.clamp(s.pos.z, -b, b);
+    // play-area edge: an invisible wall up to the sky — slide along it with a small bounce
+    const wall = clampToPlayArea(s.pos, city, 0.5);
+    if (wall) {
+      const vn = s.vel.x * wall.nx + s.vel.z * wall.nz;
+      if (vn > 0) {
+        // slide on foot, small bounce in the air
+        const k = s.onGround ? 1 : 1.3;
+        s.vel.x -= wall.nx * vn * k;
+        s.vel.z -= wall.nz * vn * k;
+      }
+      // a web anchored across the wall would keep dragging us into it
+      if (s.web && s.web.anchor.x * wall.nx + s.web.anchor.z * wall.nz > city.bounds.max - 2) releaseWeb();
+    }
 
     // rings (tested at the chest)
     const rings = ringsRef.current;
@@ -545,7 +594,7 @@ function SpidermanScene({ started, onHud }: { started: boolean; onHud: (h: Hud) 
   useFrame(({ camera }, rawDt) => {
     const s = st.current;
     const cam = camera as THREE.PerspectiveCamera;
-    const dt = Math.min(rawDt, 1 / 30);
+    const dt = Math.min(rawDt, 1 / 30) * (s.dbgTime || 1);
     s.time += dt;
     const k = keys.current;
 
@@ -558,7 +607,7 @@ function SpidermanScene({ started, onHud }: { started: boolean; onHud: (h: Hud) 
       const target = Math.atan2(-s.vel.x, -s.vel.z);
       let diff = target - s.camYaw;
       diff = Math.atan2(Math.sin(diff), Math.cos(diff));
-      s.camYaw += diff * Math.min(1, 2.2 * dt);
+      s.camYaw += diff * (1 - Math.exp(-2.2 * dt));
     } else if (hvel > 3) {
       // on foot without mouse: A/D turn the view gently
       const turn = (k.has("KeyA") || k.has("ArrowLeft") ? 1 : 0) - (k.has("KeyD") || k.has("ArrowRight") ? 1 : 0);
@@ -578,92 +627,100 @@ function SpidermanScene({ started, onHud }: { started: boolean; onHud: (h: Hud) 
     if (started) {
       s.acc += dt;
       while (s.acc >= SUB) {
+        s.prevPos.copy(s.pos);
         step(SUB, k);
         s.acc -= SUB;
       }
     }
+    // render state interpolated between the last two physics states (no judder at 120/144 Hz)
+    s.renderPos.lerpVectors(s.prevPos, s.pos, started ? s.acc / SUB : 1);
+    const rp = _rp.copy(s.renderPos);
     if (s.flipT >= 0) {
       s.flipT += dt / 0.8;
       if (s.flipT >= 1) s.flipT = -1;
     }
-    if (s.landT > 0) s.landT = Math.max(0, s.landT - dt * 1.6);
 
     // ---- hero pose ----
     const g = gfx.current;
-    if (!g) return;
-    const { rig, anim, web, animIn } = g;
     const hv = Math.hypot(s.vel.x, s.vel.z);
     if (hv > 0.6) s.facing = Math.atan2(s.vel.x, s.vel.z);
     _hv.set(Math.sin(s.facing), 0, Math.cos(s.facing));
     const w = s.web;
-    animIn.speed = hv;
-    animIn.vy = s.vel.y;
-    animIn.anchor = w ? w.anchor : null;
-    animIn.hand = w ? w.hand : s.lastHand;
-    animIn.flip = s.flipT;
-    animIn.land = s.onGround ? s.landT : 0;
-    animIn.dive = !s.onGround && !w && (k.has("ShiftLeft") || k.has("ShiftRight")) && s.vel.y < -4;
-    if (s.onGround) {
-      animIn.mode = Mode.Ground;
-      _bodyUp.copy(_up);
-      _bodyFwd.copy(_hv);
-      animIn.orientRate = 14;
-    } else if (w) {
-      animIn.mode = Mode.Swing;
-      _com.copy(s.pos).setY(s.pos.y + COM_H);
-      _bodyUp.copy(w.anchor).sub(_com).normalize().lerp(_up, 0.15).normalize();
-      _bodyFwd.copy(s.vel);
-      if (_bodyFwd.lengthSq() < 1) _bodyFwd.copy(_hv);
-      _bodyFwd.normalize();
-      _d.copy(_com).sub(w.anchor).setY(0);
-      const along = _d.dot(_hv);
-      animIn.swingPhase = 0.5 + 0.5 * THREE.MathUtils.clamp(along / (0.6 * w.len), -1, 1);
-      animIn.orientRate = 9;
-    } else {
-      animIn.mode = Mode.Air;
-      let p: number;
-      if (animIn.dive) p = Math.atan2(hv, s.vel.y);
-      else if (s.vel.y > 4) p = 0.25;
-      else p = THREE.MathUtils.clamp(-s.vel.y / 22, 0, 1) * 1.2;
-      const c = Math.cos(p);
-      const sn = Math.sin(p);
-      _bodyUp.copy(_up).multiplyScalar(c).addScaledVector(_hv, sn);
-      _bodyFwd.copy(_hv).multiplyScalar(c).addScaledVector(_up, -sn);
-      animIn.orientRate = 5;
-    }
-    animIn.up.copy(_bodyUp);
-    animIn.fwd.copy(_bodyFwd);
-    rig.root.position.set(s.pos.x, s.pos.y + COM_H, s.pos.z);
-    anim.update(dt, animIn);
-    focus.current.copy(rig.root.position);
-
-    // ---- web strand ----
-    if (w) {
-      web.mesh.visible = true;
-      const extend = Math.min(1, w.t / 0.09 + (started ? 0 : 1));
-      const slack = Math.max(0, 1 - w.t / 0.25);
-      web.update(anim.palmWorld[w.hand], w.anchor, camera.position, extend, slack, s.time);
-      if (w.t > 0.09 && w.t - dt <= 0.09) {
-        // impact puff where the strand sticks
-        particles.current?.emit(w.anchor, _tmp2.set(0, 0, 0), { life: 0.4, size: 1.4, color: "#ffffff", grow: 1.2 });
+    if (g) {
+      const { rig, anim, web, animIn } = g;
+      animIn.speed = hv;
+      animIn.vy = s.vel.y;
+      animIn.anchor = w ? w.anchor : null;
+      animIn.hand = w ? w.hand : s.lastHand;
+      animIn.flip = s.flipT;
+      animIn.impact = s.fallSpeed;
+      animIn.webT = w ? w.t : 0;
+      animIn.dive = !s.onGround && !w && (k.has("ShiftLeft") || k.has("ShiftRight")) && s.vel.y < -4;
+      if (s.onGround) {
+        animIn.mode = Mode.Ground;
+        _bodyUp.copy(_up);
+        _bodyFwd.copy(_hv);
+        animIn.orientRate = 12;
+      } else if (w) {
+        animIn.mode = Mode.Swing;
+        _com.copy(rp).setY(rp.y + COM_H);
+        _bodyUp.copy(w.anchor).sub(_com).normalize().lerp(_up, 0.15).normalize();
+        _bodyFwd.copy(s.vel);
+        if (_bodyFwd.lengthSq() < 1) _bodyFwd.copy(_hv);
+        _bodyFwd.normalize();
+        _d.copy(_com).sub(w.anchor).setY(0);
+        const along = _d.dot(_hv);
+        animIn.swingPhase = 0.5 + 0.5 * THREE.MathUtils.clamp(along / (0.6 * w.len), -1, 1);
+        animIn.orientRate = 7;
+      } else {
+        animIn.mode = Mode.Air;
+        let p: number;
+        if (animIn.dive) p = Math.atan2(hv, s.vel.y);
+        else if (s.vel.y > 4) p = 0.2;
+        else p = THREE.MathUtils.clamp(-s.vel.y / 24, 0, 1) * 1.1;
+        const c = Math.cos(p);
+        const sn = Math.sin(p);
+        _bodyUp.copy(_up).multiplyScalar(c).addScaledVector(_hv, sn);
+        _bodyFwd.copy(_hv).multiplyScalar(c).addScaledVector(_up, -sn);
+        animIn.orientRate = 4.5;
       }
-    } else web.mesh.visible = false;
+      animIn.up.copy(_bodyUp);
+      animIn.fwd.copy(_bodyFwd);
+      rig.root.position.set(rp.x, rp.y + COM_H, rp.z);
+      anim.update(dt, animIn);
 
-    // ---- camera ----
+      // ---- web strand ----
+      if (w) {
+        web.mesh.visible = true;
+        const extend = Math.min(1, w.t / 0.09 + (started ? 0 : 1));
+        const slack = Math.max(0, 1 - w.t / 0.25);
+        web.update(anim.palmWorld[w.hand], w.anchor, camera.position, extend, slack, s.time);
+        if (w.t > 0.09 && w.t - dt <= 0.09) {
+          // impact puff where the strand sticks
+          particles.current?.emit(w.anchor, _tmp2.set(0, 0, 0), { life: 0.4, size: 1.4, color: "#ffffff", grow: 1.2 });
+        }
+      } else web.mesh.visible = false;
+    }
+    focus.current.set(rp.x, rp.y + COM_H, rp.z);
+
+    // ---- camera (all smoothing is exponential/critically damped → frame-rate independent) ----
     const speed = s.vel.length();
     speedRef.current = speed;
-    _com.copy(s.pos).setY(s.pos.y + COM_H);
-    s.camSmooth.lerp(_com, 1 - Math.exp(-(s.onGround ? 16 : 11) * dt));
-    // don't let the smoothed target trail too far behind at high speed
+    _com.copy(rp).setY(rp.y + COM_H);
+    if (!s.camInit) s.camSmooth.copy(_com);
+    s.camSmooth.lerp(_com, 1 - Math.exp(-(s.onGround ? 14 : 9) * dt));
+    // don't let the smoothed target trail too far behind at high speed (soft limit)
     _d.copy(s.camSmooth).sub(_com);
-    if (_d.length() > 0.8) s.camSmooth.copy(_com).addScaledVector(_d.normalize(), 0.8);
+    const lag = _d.length();
+    const maxLag = 0.9;
+    if (lag > maxLag) s.camSmooth.copy(_com).addScaledVector(_d, (maxLag + (lag - maxLag) * 0.25) / lag);
     const targetPitch = lockedRef.current
       ? pitch.current
       : s.onGround
         ? -0.14
         : THREE.MathUtils.clamp(-0.16 + s.vel.y * 0.006, -0.45, 0.05);
-    s.camPitch += (targetPitch - s.camPitch) * Math.min(1, (lockedRef.current ? 30 : 3) * dt);
-    const dist = s.dbgDist || 3.7 + Math.min(1.0, speed / 45);
+    s.camPitch += (targetPitch - s.camPitch) * (1 - Math.exp(-(lockedRef.current ? 30 : 3) * dt));
+    const dist = s.dbgDist || 3.9 + Math.min(1.2, speed / 40);
     const vYaw = s.camYaw + s.dbgYaw;
     _right.set(Math.cos(vYaw), 0, -Math.sin(vYaw));
     _camTarget.copy(s.camSmooth).addScaledVector(_up, 0.55).addScaledVector(_right, 0.45);
@@ -676,13 +733,37 @@ function SpidermanScene({ started, onHud }: { started: boolean; onHud: (h: Hud) 
     _d.copy(_camPos).sub(_camTarget);
     const cd = _d.length();
     _d.divideScalar(cd);
-    // wall occlusion: pull in instantly, ease back out
-    const hit = raycastBuildings(_camTarget, _d, cd, city.buildings);
-    const want = hit ? Math.max(0.9, hit.dist - 0.4) : cd;
-    if (!s.camInit || want < s.camColl) s.camColl = want;
-    else s.camColl += (want - s.camColl) * Math.min(1, 4 * dt);
+    // occlusion: a fat ray (centre + 4 offset rays ≈ sphere cast r=0.35)
+    let free = cd;
+    for (let i = 0; i < 5; i++) {
+      _origin.copy(_camTarget);
+      if (i > 0) {
+        const a = (i - 1) * (Math.PI / 2);
+        _tmp.crossVectors(_d, _up).normalize();
+        _tmp2.crossVectors(_tmp, _d);
+        _origin.addScaledVector(_tmp, Math.cos(a) * 0.35).addScaledVector(_tmp2, Math.sin(a) * 0.35);
+      }
+      const hit = raycastBuildings(_origin, _d, cd, city.buildings);
+      if (hit && hit.dist < free) free = hit.dist;
+    }
+    const want = Math.max(1.0, free - 0.35);
+    if (!s.camInit) {
+      s.camColl = want;
+    } else if (want < s.camColl) {
+      // pull in fast but continuously; only hard-snap if the camera would be inside a wall
+      s.camColl += (want - s.camColl) * (1 - Math.exp(-28 * dt));
+      if (s.camColl > free) s.camColl = want;
+    } else {
+      s.camColl += (want - s.camColl) * (1 - Math.exp(-2.5 * dt));
+    }
     s.camInit = true;
     camera.position.copy(_camTarget).addScaledVector(_d, Math.min(cd, s.camColl));
+    // never look at the hero from behind the boundary fence
+    {
+      const lim = city.bounds.max - 1.2;
+      camera.position.x = THREE.MathUtils.clamp(camera.position.x, -lim, lim);
+      camera.position.z = THREE.MathUtils.clamp(camera.position.z, -lim, lim);
+    }
     cam.lookAt(_camTarget);
     // roll into the swing
     let rollT = 0;
@@ -690,11 +771,15 @@ function SpidermanScene({ started, onHud }: { started: boolean; onHud: (h: Hud) 
       _d.copy(w.anchor).sub(_com);
       rollT = THREE.MathUtils.clamp(-_d.dot(_right) / (w.len + 1), -1, 1) * 0.1;
     }
-    s.camRoll += (rollT - s.camRoll) * Math.min(1, 3 * dt);
+    s.camRoll += (rollT - s.camRoll) * (1 - Math.exp(-3 * dt));
     cam.rotateZ(s.camRoll);
-    const targetFov = 60 + Math.min(1, speed / 55) * 15;
-    cam.fov += (targetFov - cam.fov) * Math.min(1, 4 * dt);
-    cam.updateProjectionMatrix();
+    const targetFov = 60 + Math.min(1, speed / 55) * 14;
+    const nf = cam.fov + (targetFov - cam.fov) * (1 - Math.exp(-3 * dt));
+    if (Math.abs(nf - cam.fov) > 1e-3) {
+      cam.fov = nf;
+      cam.updateProjectionMatrix();
+    }
+    s.edge = distanceToEdge(s.pos.x, s.pos.z, city) < BOUNDARY_WARN;
 
     // ---- HUD throttle ~10Hz ----
     s.hudT += dt;
@@ -710,6 +795,7 @@ function SpidermanScene({ started, onHud }: { started: boolean; onHud: (h: Hud) 
         combo: s.combo,
         bannerId: s.bannerT > 0 ? s.bannerId : 0,
         bannerText: s.bannerText,
+        edge: s.edge,
       };
       const o = s.lastHud;
       if (
@@ -721,7 +807,8 @@ function SpidermanScene({ started, onHud }: { started: boolean; onHud: (h: Hud) 
         o.rings !== nh.rings ||
         o.score !== nh.score ||
         o.combo !== nh.combo ||
-        o.bannerId !== nh.bannerId
+        o.bannerId !== nh.bannerId ||
+        o.edge !== nh.edge
       ) {
         s.lastHud = nh;
         onHud(nh);
@@ -754,10 +841,11 @@ export default function Spiderman({ started }: { started: boolean }) {
     combo: 0,
     bannerId: 0,
     bannerText: "",
+    edge: false,
   });
   return (
     <div className="absolute inset-0">
-      <Canvas shadows="percentage" dpr={[1, 1.5]} gl={CANVAS_GL} camera={{ fov: 60, near: 0.1, far: 3000 }}>
+      <Canvas shadows="percentage" dpr={[1, 1.5]} gl={CANVAS_GL} camera={{ fov: 60, near: 0.2, far: 3000 }}>
         <SpidermanScene started={started} onHud={setHud} />
       </Canvas>
       <div className="absolute top-4 right-4 flex flex-col gap-2 items-end">
@@ -766,6 +854,7 @@ export default function Spiderman({ started }: { started: boolean }) {
         <HudStat label="Hız" value={`${hud.speed} km/h`} accent="#14141f" />
         <HudStat label="Yükseklik" value={`${hud.height} m`} accent="#6b6880" />
       </div>
+      <HudEdge show={started && hud.edge} />
       {hud.bannerId > 0 && <HudBanner keyId={hud.bannerId} text={hud.bannerText} accent="#0284c7" />}
       {started && !hud.locked && <HudCenter text="Tıkla: fare ile bak · Space / Sol tık basılı: ağ at" />}
       {started && hud.rings === RING_COUNT && (

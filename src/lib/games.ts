@@ -33,16 +33,16 @@ export const GAMES: GameInfo[] = [
   {
     slug: "drift",
     title: "Drift",
-    subtitle: "Gece meydanında lastik yak",
+    subtitle: "Gece şehrinde sokak drifti",
     description:
-      "El frenine asıl, aracı yatır, neon meydanda lastikleri yak. Drift zinciri uzadıkça çarpan büyür; çarparsan zincir sıfırlanır.",
-    goal: "Drift zincirini uzat, halkalardan geçip bonus topla. Duvara sürtünürsen zincir sıfırlanır.",
+      "Şehrin kapatılmış sokaklarında gece drift etkinliği. Hızlan, virajdan önce el frenine dokun, A/D ile açıyı tut, kavşakları yan yan dön. Drift zinciri uzadıkça çarpan büyür.",
+    goal: "Sarı ışıklı kapılardan sırayla geç, virajları drift ederek dön ve köşe bonusu topla. En iyi tur süreni geliştir; sert çarparsan zincir kopar.",
     controls: [
       { keys: ["W", "S"], label: "gaz / fren-geri" },
       { keys: ["A", "D"], label: "direksiyon, driftte açıyı ayarlar" },
-      { keys: ["Space"], label: "el freni: drifte gir" },
+      { keys: ["Space"], label: "el freni: hızlıyken dokun, drifte gir" },
       { keys: ["C"], label: "kamera" },
-      { keys: ["R"], label: "sıfırla" },
+      { keys: ["R"], label: "son kapıya dön" },
     ],
     accent: "#9333ea",
     tint: "#f3e8ff",

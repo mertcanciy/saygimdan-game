@@ -285,31 +285,40 @@ function EnvSkyline({ night }: { night: boolean }) {
 
 /**
  * Post-processing stack + adaptive quality. Keep it last inside the Canvas.
- * A performance monitor watches the frame rate: on a struggling GPU it first
- * drops the resolution, then ambient occlusion; it steps back up when there's
- * headroom again.
+ *
+ * A performance monitor only steps the render resolution up/down (smoothly,
+ * invisible to the eye). Ambient occlusion is decided once at start (on for
+ * desktops, off for phones) and can only be switched off — permanently — if
+ * the frame rate stays bad at the lowest resolution. Toggling AO back and
+ * forth made the whole image pulse brighter/darker.
  */
+const DPR_STEPS = [1.5, 1.25, 1, 0.85];
+
 export function WorldEffects({ preset, ao = true }: { preset: WorldPreset; ao?: boolean }) {
   const p = PRESETS[preset];
   const setDpr = useThree((s) => s.setDpr);
-  // 0 = full (dpr up to 1.5 + AO), 1 = dpr 1 + AO, 2 = dpr 1 without AO, 3 = dpr 0.8 without AO
-  // phones start at "dpr 1, no AO" and can still step up if they have headroom
-  const [level, setLevel] = useState(() => (isTouchDevice() ? 2 : 0));
+  const [start] = useState(() => (isTouchDevice() ? 2 : 0));
+  const [level, setLevel] = useState(start);
+  const [aoOn, setAoOn] = useState(() => ao && !isTouchDevice());
   useEffect(() => {
-    const max = Math.min(1.5, typeof window !== "undefined" ? window.devicePixelRatio : 1);
-    setDpr(level === 0 ? max : level === 3 ? 0.8 : 1);
+    const cap = typeof window !== "undefined" ? window.devicePixelRatio : 1;
+    setDpr(Math.min(cap, DPR_STEPS[level]));
   }, [level, setDpr]);
-  const useAo = ao && level < 2;
   return (
     <>
       <PerformanceMonitor
         bounds={(refresh) => (refresh > 90 ? [55, 85] : [44, 57])}
-        flipflops={4}
-        onDecline={() => setLevel((l) => Math.min(3, l + 1))}
+        flipflops={3}
+        onDecline={() => setLevel((l) => Math.min(DPR_STEPS.length - 1, l + 1))}
         onIncline={() => setLevel((l) => Math.max(0, l - 1))}
+        onFallback={() => {
+          // kept flip-flopping: settle one step down and drop AO for good
+          setLevel((l) => Math.min(DPR_STEPS.length - 1, Math.max(l, 2)));
+          setAoOn(false);
+        }}
       />
       <EffectComposer multisampling={0}>
-        {useAo ? (
+        {aoOn ? (
           <N8AO aoRadius={4} distanceFalloff={1.2} intensity={preset === "night" ? 1.4 : 2.2} halfRes quality="performance" />
         ) : (
           <></>

@@ -142,3 +142,18 @@ export function HudBar({ label, value, accent }: { label: string; value: number;
     </div>
   );
 }
+
+/** Edge-of-map warning: show while the player is near / at the play-area boundary. */
+export function HudEdge({ show, text = "Şehrin sınırı. Geri dön." }: { show: boolean; text?: string }) {
+  if (!show) return null;
+  return (
+    <div className="pointer-events-none absolute inset-x-0 top-[34%] flex justify-center px-4 animate-fade-up">
+      <span className="flex items-center gap-2.5 rounded-full bg-[#0a0a0a]/85 py-2 pl-2 pr-4 text-[14px] font-semibold text-white backdrop-blur">
+        <span aria-hidden className="grid size-7 place-items-center rounded-full bg-[#ffd400] text-[15px] font-extrabold text-[#0a0a0a]">
+          !
+        </span>
+        {text}
+      </span>
+    </div>
+  );
+}
