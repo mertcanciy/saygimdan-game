@@ -4,7 +4,7 @@
 // plus camera-facing light flares (directional: headlights only glow towards
 // the viewer when the car faces them) and headlight beams on the road.
 
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { useFrame } from "@react-three/fiber";
 import { buildCar, SLOTS, type CarGeometry, type CarType, type Slot } from "./carGeometry";
@@ -77,6 +77,7 @@ export default function TrafficFleet({
   beams = true,
   shadows = false,
   lights = true,
+  dynamic = true,
 }: {
   cars: FleetCar[];
   flares?: boolean;
@@ -84,6 +85,8 @@ export default function TrafficFleet({
   shadows?: boolean;
   /** false: parked cars (head / tail lights off) */
   lights?: boolean;
+  /** false: cars never move — instance matrices are uploaded once, not per frame */
+  dynamic?: boolean;
 }) {
   const mats = lights ? carMaterials() : carMaterialsUnlit();
 
@@ -179,9 +182,7 @@ export default function TrafficFleet({
     []
   );
 
-  useFrame(({ clock }) => {
-    const tBlink = clock.elapsedTime * 1.6;
-
+  const writeMatrices = useCallback(() => {
     for (let gi = 0; gi < groups.length; gi++) {
       const g = groups[gi];
       const keys = slotKeys[gi];
@@ -206,15 +207,25 @@ export default function TrafficFleet({
         if (g.slots[si] === "paint" && im.instanceColor) im.instanceColor.needsUpdate = true;
       }
     }
+  }, [groups, slotKeys, cars]);
 
-    // flares + beams
+  useLayoutEffect(() => {
+    if (!dynamic) writeMatrices();
+  }, [dynamic, writeMatrices]);
+
+  useFrame(({ clock }) => {
+    if (dynamic) writeMatrices();
+
+    const bm = beamRef.current;
+    const tm = tailRef.current;
+    if (!flares && !bm && !tm) return;
+
+    const tBlink = clock.elapsedTime * 1.6;
     const pa = flareData.geo.getAttribute("position") as THREE.BufferAttribute;
     const da = flareData.geo.getAttribute("aDir") as THREE.BufferAttribute;
     const ca = flareData.geo.getAttribute("aColor") as THREE.BufferAttribute;
     const sa = flareData.geo.getAttribute("aSize") as THREE.BufferAttribute;
     let f = 0;
-    const bm = beamRef.current;
-    const tm = tailRef.current;
     for (let i = 0; i < cars.length; i++) {
       const c = cars[i];
       const geo = carGeo[i];
@@ -223,55 +234,57 @@ export default function TrafficFleet({
       const brake = c.brake ?? 0;
       const fl = c.flash ?? 0;
       const hk = c.visible ? 1 + fl * 1.6 : 0;
-      for (const hl of geo.headLights) {
-        const lx = hl.x;
-        const lz = hl.z + 0.12;
-        pa.setXYZ(f, c.x + co * lx + s * lz, c.y + hl.y, c.z - s * lx + co * lz);
-        da.setXYZ(f, s, 0, co);
-        ca.setXYZ(f, hk, hk * 0.96, hk * 0.9);
-        sa.setX(f, (geo.spec.W > 2.2 ? 1.5 : 1.25) * (1 + fl * 0.8));
-        f++;
-      }
-      for (const tl of geo.tailLights) {
-        const lx = tl.x;
-        const lz = tl.z - 0.12;
-        pa.setXYZ(f, c.x + co * lx + s * lz, c.y + tl.y, c.z - s * lx + co * lz);
-        da.setXYZ(f, -s, 0, -co);
-        const k = c.visible ? 0.55 + brake * 0.9 : 0;
-        ca.setXYZ(f, k, k * 0.06, k * 0.04);
-        sa.setX(f, 0.9 + brake * 0.5);
-        f++;
-      }
-      // turn signals: next to the outermost head / tail lamp on the signalled
-      // side (car's right = local -X), slightly outboard and above it
-      {
-        const b = c.blink ?? 0;
-        const on = c.visible && b !== 0 && (tBlink + i * 0.37) % 1 < 0.55;
-        const k = on ? 2.4 : 0;
-        const side = b === 0 ? 1 : -b;
-        for (let pass = 0; pass < 2; pass++) {
-          const lamps = pass === 0 ? geo.headLights : geo.tailLights;
-          let lx = side * (geo.spec.W / 2 - 0.1);
-          let ly = pass === 0 ? 0.7 : 0.85;
-          let lz = pass === 0 ? geo.spec.L / 2 : -geo.spec.L / 2;
-          let best = -1;
-          for (const lp of lamps) {
-            if (lp.x * side > 0 && Math.abs(lp.x) > best) {
-              best = Math.abs(lp.x);
-              lx = lp.x;
-              ly = lp.y;
-              lz = lp.z;
-            }
-          }
-          lx += side * 0.06;
-          ly += pass === 0 ? 0.02 : -0.02;
-          lz += pass === 0 ? 0.16 : -0.16;
-          pa.setXYZ(f, c.x + co * lx + s * lz, c.y + ly, c.z - s * lx + co * lz);
-          if (pass === 0) da.setXYZ(f, s, 0, co);
-          else da.setXYZ(f, -s, 0, -co);
-          ca.setXYZ(f, k * 1.25, k * 0.42, 0);
-          sa.setX(f, 1.5);
+      if (flares) {
+        for (const hl of geo.headLights) {
+          const lx = hl.x;
+          const lz = hl.z + 0.12;
+          pa.setXYZ(f, c.x + co * lx + s * lz, c.y + hl.y, c.z - s * lx + co * lz);
+          da.setXYZ(f, s, 0, co);
+          ca.setXYZ(f, hk, hk * 0.96, hk * 0.9);
+          sa.setX(f, (geo.spec.W > 2.2 ? 1.5 : 1.25) * (1 + fl * 0.8));
           f++;
+        }
+        for (const tl of geo.tailLights) {
+          const lx = tl.x;
+          const lz = tl.z - 0.12;
+          pa.setXYZ(f, c.x + co * lx + s * lz, c.y + tl.y, c.z - s * lx + co * lz);
+          da.setXYZ(f, -s, 0, -co);
+          const k = c.visible ? 0.55 + brake * 0.9 : 0;
+          ca.setXYZ(f, k, k * 0.06, k * 0.04);
+          sa.setX(f, 0.9 + brake * 0.5);
+          f++;
+        }
+        // turn signals: next to the outermost head / tail lamp on the signalled
+        // side (car's right = local -X), slightly outboard and above it
+        {
+          const b = c.blink ?? 0;
+          const on = c.visible && b !== 0 && (tBlink + i * 0.37) % 1 < 0.55;
+          const k = on ? 2.4 : 0;
+          const side = b === 0 ? 1 : -b;
+          for (let pass = 0; pass < 2; pass++) {
+            const lamps = pass === 0 ? geo.headLights : geo.tailLights;
+            let lx = side * (geo.spec.W / 2 - 0.1);
+            let ly = pass === 0 ? 0.7 : 0.85;
+            let lz = pass === 0 ? geo.spec.L / 2 : -geo.spec.L / 2;
+            let best = -1;
+            for (const lp of lamps) {
+              if (lp.x * side > 0 && Math.abs(lp.x) > best) {
+                best = Math.abs(lp.x);
+                lx = lp.x;
+                ly = lp.y;
+                lz = lp.z;
+              }
+            }
+            lx += side * 0.06;
+            ly += pass === 0 ? 0.02 : -0.02;
+            lz += pass === 0 ? 0.16 : -0.16;
+            pa.setXYZ(f, c.x + co * lx + s * lz, c.y + ly, c.z - s * lx + co * lz);
+            if (pass === 0) da.setXYZ(f, s, 0, co);
+            else da.setXYZ(f, -s, 0, -co);
+            ca.setXYZ(f, k * 1.25, k * 0.42, 0);
+            sa.setX(f, 1.5);
+            f++;
+          }
         }
       }
       if (bm) {
@@ -298,7 +311,7 @@ export default function TrafficFleet({
         } else tm.setMatrixAt(i, _zero);
       }
     }
-    pa.needsUpdate = da.needsUpdate = ca.needsUpdate = sa.needsUpdate = true;
+    if (flares) pa.needsUpdate = da.needsUpdate = ca.needsUpdate = sa.needsUpdate = true;
     if (bm) bm.instanceMatrix.needsUpdate = true;
     if (tm) tm.instanceMatrix.needsUpdate = true;
   });
