@@ -47,6 +47,39 @@ const WALL_RUN = 15;
 const WEB_SPEED = 240;
 const ZIP_RANGE = 95;
 
+/*
+ * Touch: the right thumb is holding the web button, so the left stick does
+ * the steering in the air. Sideways = turn: the view and the direction of
+ * travel rotate together (and with them the next anchor), like carving, rather
+ * than a sideways push. Up = push on along the view.
+ */
+const TOUCH = {
+  /** turn rate of the path at full stick while airborne (rad/s) */
+  turnRate: 2.5,
+  /** camera catching up behind the path while the stick turns (keyboard air: 2.2) */
+  turnFollow: 4.5,
+  deadzone: 0.12,
+  /** forward pull while swinging (keyboard: 7) */
+  swingSteer: 10,
+  /** camera catching up behind a running hero (keyboard: 1.2) */
+  groundFollow: 2.4,
+  /** cap on the sideways pull while swinging (m/s², ≈ 4 g) */
+  swingPullMax: 40,
+  /** while turning, re-web once the anchor is this far behind (cos of the angle to the path) */
+  reanchorBehind: -0.15,
+  /** …but not more often than this (s) */
+  reanchorCooldown: 0.8,
+  /** anchor search leans this far towards the stick (rad at full stick) */
+  anchorLean: 0.5,
+  /** stick pushed this far (0..1) on the ground = sprint */
+  autoSprint: 0.97,
+};
+
+function touchTurn(x: number) {
+  const m = Math.max(0, Math.abs(x) - TOUCH.deadzone) / (1 - TOUCH.deadzone);
+  return Math.sign(x) * Math.pow(m, 1.35);
+}
+
 // scratch objects (no per-frame allocation)
 const _d = new THREE.Vector3();
 const _n = new THREE.Vector3();
@@ -427,6 +460,9 @@ function SpidermanScene({ started, onHud }: { started: boolean; onHud: (h: Hud) 
     edge: false,
     /** analog input magnitude 0..1 (touch stick) */
     wishMag: 0,
+
+    /** cooldown before the next mid-swing re-web while turning (touch) */
+    reanchorT: 0,
     /** render-only offset that absorbs position snaps (vaults, corners), decays to 0 */
     visOff: new THREE.Vector3(),
     /** smoothed offset from `pos` to the body's centre of mass */
@@ -459,11 +495,17 @@ function SpidermanScene({ started, onHud }: { started: boolean; onHud: (h: Hud) 
       diff = Math.atan2(Math.sin(diff), Math.cos(diff));
       heading += diff * 0.35;
     }
+    // touch: lean the search towards where the stick points
+    const turn = touch ? touchTurn(s.inX) : 0;
+    heading -= turn * TOUCH.anchorLean;
     const hx = -Math.sin(heading);
     const hz = -Math.cos(heading);
-    // alternate sides for a rhythm (left hand, right hand, …)
+    // alternate sides for a rhythm (left hand, right hand, …); while turning, the
+    // anchor goes on the inside of the turn so the swing curves round it
     _right.set(-hz, 0, hx);
-    const prefer = s.lastHand === 1 ? -1 : 1;
+    const turning = Math.abs(turn) > 0.12;
+    const prefer = turning ? Math.sign(turn) : s.lastHand === 1 ? -1 : 1;
+    const sideWeight = turning ? 10 : 3;
     let bestScore = -Infinity;
     for (let e = 0; e < 5; e++) {
       const elev = 0.5 + e * 0.2; // 29°..74°
@@ -491,7 +533,7 @@ function SpidermanScene({ started, onHud }: { started: boolean; onHud: (h: Hud) 
           Math.abs(horiz - 24) * 0.45 -
           Math.max(0, ropeLen - 70) * 0.8 -
           Math.abs(yo) * 4 +
-          (hv > 8 ? side * prefer * 3 : 0);
+          (hv > 8 || turning ? side * prefer * sideWeight : 0);
         if (score > bestScore) {
           bestScore = score;
           _best.set(hit.point.x, ay, hit.point.z);
@@ -980,11 +1022,36 @@ function SpidermanScene({ started, onHud }: { started: boolean; onHud: (h: Hud) 
       s.inX = (k.has("KeyD") || k.has("ArrowRight") ? 1 : 0) - (k.has("KeyA") || k.has("ArrowLeft") ? 1 : 0);
       s.inY = (k.has("KeyW") || k.has("ArrowUp") ? 1 : 0) - (k.has("KeyS") || k.has("ArrowDown") ? 1 : 0);
     }
-    _wish.set(0, 0, 0).addScaledVector(_fwd, s.inY).addScaledVector(_right, s.inX);
+    // touch, airborne: stick sideways turns (view + path together, see the camera
+    // yaw in useFrame) instead of pushing sideways, which read as sliding off
+    const carve = touch && virtualStick.active && !s.onGround && !s.wall && !s.zip;
+    _wish.set(0, 0, 0).addScaledVector(_fwd, s.inY).addScaledVector(_right, carve ? 0 : s.inX);
     const wl = _wish.length();
-    s.wishMag = Math.min(1, wl);
+    s.wishMag = Math.min(1, Math.hypot(s.inX, s.inY));
     if (wl > 1) _wish.divideScalar(wl);
-    const sprint = k.has("ShiftLeft") || k.has("ShiftRight");
+    if (carve) {
+      const turn = -touchTurn(s.inX); // + = left
+      if (s.web && s.holding) {
+        // swinging: a sideways pull bends the path (the rope stays where it stuck;
+        // the rope constraint takes out whatever pulls along it)
+        const hv = Math.hypot(s.vel.x, s.vel.z) || 1;
+        const pull = Math.min(TOUCH.swingPullMax, Math.abs(turn) * TOUCH.turnRate * hv) * Math.sign(turn) * h;
+        const lx = s.vel.z / hv; // left of travel
+        const lz = -s.vel.x / hv;
+        s.vel.x += lx * pull;
+        s.vel.z += lz * pull;
+      } else {
+        // free flight: turn the path
+        const a = turn * TOUCH.turnRate * h;
+        const c = Math.cos(a);
+        const sn = Math.sin(a);
+        const vx = s.vel.x;
+        s.vel.x = vx * c + s.vel.z * sn;
+        s.vel.z = -vx * sn + s.vel.z * c;
+      }
+    }
+    // touch: stick all the way out on the ground = sprint (no second button needed)
+    const sprint = k.has("ShiftLeft") || k.has("ShiftRight") || (touch && s.onGround && virtualStick.active && s.wishMag >= TOUCH.autoSprint);
     s.wallCool -= h;
     s.zipCool -= h;
 
@@ -1058,7 +1125,7 @@ function SpidermanScene({ started, onHud }: { started: boolean; onHud: (h: Hud) 
             const tl = _tmp.length();
             if (tl > 0.5 && sp < 46) s.vel.addScaledVector(_tmp.divideScalar(tl), 7.5 * h);
             // steer: camera forward (+stick), projected on the tangent plane
-            _tmp2.copy(_fwd).multiplyScalar(6).addScaledVector(_wish, 7);
+            _tmp2.copy(_fwd).multiplyScalar(6).addScaledVector(_wish, touch ? TOUCH.swingSteer : 7);
             _tmp2.addScaledVector(_n, -_tmp2.dot(_n));
             s.vel.addScaledVector(_tmp2, h);
             // reel the rope in towards the safe length (lifts you off the street)
@@ -1172,7 +1239,12 @@ function SpidermanScene({ started, onHud }: { started: boolean; onHud: (h: Hud) 
 
     // ---- camera yaw: mouse / touch drag when active, otherwise auto-follow ----
     const hvel = Math.hypot(s.vel.x, s.vel.z);
-    const touchIdle = touch && now - lastLook.current > 1400;
+    // touch, airborne: the left stick turns the path (see step); the camera trails
+    // it from behind, so the hero never slides sideways across the screen
+    const stickTurn =
+      touch && started && !s.onGround && !s.wall && !s.zip && virtualStick.active ? touchTurn(virtualStick.x) : 0;
+    // (a stick turn takes over from a recent camera drag)
+    const touchIdle = touch && (stickTurn !== 0 || now - lastLook.current > 1400);
     const manual = lockedRef.current && !touchIdle;
     if (lockedRef.current) {
       if (!s.wasLocked) s.yawOffset = s.camYaw - yaw.current;
@@ -1190,7 +1262,7 @@ function SpidermanScene({ started, onHud }: { started: boolean; onHud: (h: Hud) 
         rate = 3;
       } else if (hvel > 3 && (!s.onGround || touch)) {
         target = Math.atan2(-s.vel.x, -s.vel.z);
-        rate = s.onGround ? 1.2 : 2.2;
+        rate = s.onGround ? (touch ? TOUCH.groundFollow : 1.2) : stickTurn !== 0 ? TOUCH.turnFollow : 2.2;
       }
       if (target !== null) {
         let diff = target - s.camYaw;
@@ -1218,6 +1290,21 @@ function SpidermanScene({ started, onHud }: { started: boolean; onHud: (h: Hud) 
       } else {
         if (wantWeb && !s.holding && !s.webLock && !s.zip) attachWeb();
         if (!wantWeb && s.holding) releaseWeb();
+        // touch: turning bends the swing until its anchor falls behind; then the next
+        // web goes out, on the inside of the turn (findAnchor), not too often
+        s.reanchorT -= dt;
+        const w = s.web;
+        if (touch && w && s.holding && stickTurn !== 0 && w.t > w.arrive + 0.3 && s.reanchorT <= 0) {
+          const hv = Math.hypot(s.vel.x, s.vel.z) || 1;
+          const ax = w.anchor.x - s.pos.x;
+          const az = w.anchor.z - s.pos.z;
+          const behind = (ax * s.vel.x + az * s.vel.z) / (hv * (Math.hypot(ax, az) || 1));
+          if (behind < TOUCH.reanchorBehind) {
+            releaseWeb(false);
+            attachWeb();
+            s.reanchorT = TOUCH.reanchorCooldown;
+          }
+        }
       }
       if (edge(k, "KeyQ") || rmbPressed) startZip();
       if (edge(k, "KeyR")) reset();

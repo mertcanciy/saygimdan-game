@@ -267,6 +267,11 @@
   }
 }
 
+/* touch stick pushed to its rim (touch/Stick.tsx): the ring turns record-label red */
+.stick-rim {
+  box-shadow: 0 0 0 3px var(--red), 0 0 22px rgba(220, 30, 42, 0.55);
+}
+
 /* equalizer bars in the song dock */
 @keyframes eq {
   from { transform: scaleY(0.25); }

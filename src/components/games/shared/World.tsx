@@ -7,10 +7,10 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import * as THREE from "three";
 import { useFrame, useThree } from "@react-three/fiber";
-import { Environment, Sky, Stars, Lightformer, PerformanceMonitor } from "@react-three/drei";
+import { Environment, Sky, Stars, Lightformer } from "@react-three/drei";
 import { EffectComposer, Bloom, ToneMapping, Vignette, N8AO, SMAA } from "@react-three/postprocessing";
-import { ToneMappingMode, type EffectComposer as PPEffectComposer } from "postprocessing";
-import { isTouchDevice } from "./input";
+import { SMAAPreset, ToneMappingMode, type EffectComposer as PPEffectComposer } from "postprocessing";
+import { getDisplayHz, isTabletScreen, isTouchDevice } from "./input";
 
 export type WorldPreset = "day" | "golden" | "night";
 
@@ -289,11 +289,14 @@ function EnvSkyline({ night }: { night: boolean }) {
  * Changing the render resolution reallocates the canvas and every
  * post-processing target — a visible freeze of a few hundred ms. So quality
  * only ever steps DOWN, and only when the frame rate stays low: the monitor
- * starts after the scene has warmed up, averages over several seconds, and
- * never steps back up (a machine hovering around the threshold would
- * otherwise hitch every few seconds). Ambient occlusion is decided once at
- * start (on for desktops, off for phones) and dropped for good only if the
- * frame rate is still bad at a lower resolution.
+ * starts after the scene has warmed up, averages over a couple of seconds,
+ * jumps straight to the level the measured frame rate calls for (one hitch,
+ * not four), stops for good if a step didn't help (a 30 Hz low-power cap or a
+ * CPU-bound device gains nothing from fewer pixels) and never steps back up.
+ * It already runs behind the start sheet, where a resolution change is
+ * invisible. Ambient occlusion is decided once at start (on for desktops, off
+ * for phones) and dropped for good only if the frame rate is still bad at a
+ * lower resolution.
  */
 const DPR_STEPS = [1.5, 1.25, 1, 0.85];
 
@@ -304,12 +307,33 @@ const DPR_STEPS = [1.5, 1.25, 1, 0.85];
  */
 const PIXEL_BUDGET = 4.2e6;
 
+/**
+ * Phones and tablets: quality levels as pixels per frame. A landscape phone
+ * is only ~0.33 MP in CSS pixels, so rendering at DPR 1 (the old fixed
+ * setting) looked like a low-res video on a 3× screen. Level 0 is ≈ DPR 1.8
+ * there; weaker GPUs step down (straight to the right level) as far as the
+ * old DPR 0.85. Tablets have more screen and stronger GPUs: × TABLET_SCALE.
+ */
+const TOUCH_BUDGETS = [1.1e6, 0.82e6, 0.6e6, 0.45e6, 0.33e6, 0.25e6];
+const TABLET_SCALE = 1.7;
+const TOUCH_MAX_DPR = 2;
+
+const touchBudget = (level: number) => TOUCH_BUDGETS[level] * (isTabletScreen() ? TABLET_SCALE : 1);
+const levelCount = () => (isTouchDevice() ? TOUCH_BUDGETS.length : DPR_STEPS.length);
+
 function dprFor(level: number, cssPixels: number) {
-  const budget = Math.max(1, Math.sqrt(PIXEL_BUDGET / Math.max(1, cssPixels)));
+  const css = Math.max(1, cssPixels);
+  if (isTouchDevice()) {
+    const max = Math.min(window.devicePixelRatio || 1, TOUCH_MAX_DPR);
+    return Math.min(max, Math.max(0.75, Math.sqrt(touchBudget(level) / css)));
+  }
+  const budget = Math.max(1, Math.sqrt(PIXEL_BUDGET / css));
   return Math.min(window.devicePixelRatio, DPR_STEPS[level], budget);
 }
 
-const startLevel = () => (isTouchDevice() ? 2 : 0);
+/** Level a device settled on this session; the next game starts there instead of re-learning it. */
+let learnedLevel = 0;
+const startLevel = () => learnedLevel;
 
 /*
  * The render DPR lives here and reaches the renderer through the Canvas `dpr`
@@ -430,41 +454,131 @@ function useWarmUp(composer: React.RefObject<PPEffectComposer | null>, started: 
   }, 0.9);
 }
 
+/** Frame-rate watch behind the adaptive quality (seconds). */
+const MONITOR = {
+  /** shader compilation and asset uploads make the first seconds look slow (phones start sooner: the start sheet hides a change) */
+  warmupTouch: 3,
+  warmupDesktop: 6,
+  window: 1.6,
+};
+
+/**
+ * Calls `onSlow(fps / target)` when two measuring windows in a row come in
+ * under the target frame rate; `onSlow` returns false when there is nothing
+ * left to drop. Stops for good once a step bought less than 10 %.
+ */
+function useFrameRateGuard(touch: boolean, onSlow: (ratio: number) => boolean) {
+  const st = useRef({ age: 0, t: 0, n: 0, slow: 0, slowFps: 0, lastFps: 0, settle: 0, done: false });
+  useFrame((_, dt) => {
+    const m = st.current;
+    if (m.done) return;
+    m.age += dt;
+    if (dt > 0.25) {
+      // tab switch, a reallocation, a long task: restart the window
+      m.t = m.n = 0;
+      return;
+    }
+    if (m.age < (touch ? MONITOR.warmupTouch : MONITOR.warmupDesktop)) return;
+    m.t += dt;
+    m.n++;
+    if (m.t < MONITOR.window) return;
+    const fps = m.n / m.t;
+    m.t = m.n = 0;
+    if (m.settle > 0) {
+      m.settle--;
+      return;
+    }
+    // measured before the scene loaded (see measureDisplayHz): a 30 Hz low-power cap isn't a slow GPU
+    const hz = getDisplayHz();
+    const target = hz > 90 ? 55 : hz >= 60 ? (touch ? 45 : 42) : 25;
+    if (fps >= target) {
+      m.slow = 0;
+      return;
+    }
+    // one slow window can be a hiccup (a late shader, a model upload): wait for a second
+    if (++m.slow < 2) {
+      m.slowFps = fps;
+      return;
+    }
+    const avg = (fps + m.slowFps) / 2;
+    m.slow = 0;
+    if (m.lastFps && avg < m.lastFps * 1.1) {
+      m.done = true;
+      return;
+    }
+    m.lastFps = avg;
+    m.settle = 1;
+    if (!onSlow(avg / target)) m.done = true;
+  });
+}
+
+/**
+ * Dev-only: `?gpuload=12` makes every frame cost 12 ms per million rendered
+ * pixels (busy wait), i.e. a fill-rate-bound phone GPU, to exercise the
+ * adaptive quality on a fast machine.
+ */
+function useFakeGpuLoad() {
+  const msPerMp = useMemo(() => {
+    if (process.env.NODE_ENV === "production" || typeof window === "undefined") return 0;
+    return Number(new URLSearchParams(window.location.search).get("gpuload")) || 0;
+  }, []);
+  useFrame(({ gl }) => {
+    if (!msPerMp) return;
+    const c = gl.domElement;
+    const end = performance.now() + ((c.width * c.height) / 1e6) * msPerMp;
+    while (performance.now() < end);
+  });
+}
+
 export function WorldEffects({ preset, ao = true, started = false }: { preset: WorldPreset; ao?: boolean; started?: boolean }) {
   const p = PRESETS[preset];
   const composer = useRef<PPEffectComposer>(null);
   useWarmUp(composer, started);
+  useFakeGpuLoad();
   const cssPixels = useThree((s) => s.size.width * s.size.height);
+  const touch = useMemo(() => isTouchDevice(), []);
   const [level, setLevel] = useState(startLevel);
-  const [aoOn, setAoOn] = useState(() => ao && !isTouchDevice());
-  const [monitor, setMonitor] = useState(false);
+  const levelRef = useRef(level);
+  const [aoOn, setAoOn] = useState(() => ao && !touch);
+  const aoRef = useRef(aoOn);
   const drops = useRef(0);
   // re-evaluated on resize / fullscreen too (the budget depends on the canvas
   // size); R3F only reallocates when the resulting DPR actually changes
   useEffect(() => {
     setCanvasDpr(dprFor(level, cssPixels));
   }, [level, cssPixels]);
-  useEffect(() => {
-    // shader compilation and asset uploads make the first seconds look slow
-    const t = setTimeout(() => setMonitor(true), 6000);
-    return () => clearTimeout(t);
-  }, []);
+  useFrameRateGuard(touch, (ratio) => {
+    const last = levelCount() - 1;
+    const step = (next: number) => {
+      levelRef.current = learnedLevel = next;
+      setLevel(next);
+      return true;
+    };
+    if (touch) {
+      if (levelRef.current >= last) return false;
+      // straight to the level whose pixel count fits the measured frame rate
+      const want = touchBudget(levelRef.current) * ratio * 0.9;
+      let next = levelRef.current + 1;
+      while (next < last && touchBudget(next) > want) next++;
+      return step(next);
+    }
+    // desktop: first drop lower resolution; second AO off; then resolution again
+    drops.current++;
+    if (drops.current === 2 && aoRef.current) {
+      aoRef.current = false;
+      setAoOn(false);
+      return true;
+    }
+    if (levelRef.current >= last) {
+      if (!aoRef.current) return false;
+      aoRef.current = false;
+      setAoOn(false);
+      return true;
+    }
+    return step(levelRef.current + 1);
+  });
   return (
     <>
-      {monitor && (
-        <PerformanceMonitor
-          ms={400}
-          iterations={10}
-          bounds={(refresh) => (refresh > 90 ? [55, 1000] : [42, 1000])}
-          flipflops={Infinity}
-          onDecline={() => {
-            drops.current++;
-            // first drop: lower resolution; second: AO off; then resolution again
-            if (drops.current === 2 && aoOn) setAoOn(false);
-            else setLevel((l) => Math.min(DPR_STEPS.length - 1, l + 1));
-          }}
-        />
-      )}
       <EffectComposer ref={composer} multisampling={0}>
         {aoOn ? (
           <N8AO
@@ -478,9 +592,10 @@ export function WorldEffects({ preset, ao = true, started = false }: { preset: W
         ) : (
           <></>
         )}
-        <Bloom luminanceThreshold={p.bloom.threshold} intensity={p.bloom.intensity} mipmapBlur radius={0.7} />
+        {/* phones: a shorter bloom chain and the light SMAA preset (fewer full-screen passes, so more pixels fit) */}
+        <Bloom luminanceThreshold={p.bloom.threshold} intensity={p.bloom.intensity} mipmapBlur radius={0.7} levels={touch ? 6 : 8} />
         <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
-        <SMAA />
+        <SMAA preset={touch ? SMAAPreset.LOW : SMAAPreset.MEDIUM} />
         <Vignette eskil={false} offset={0.3} darkness={0.45} />
       </EffectComposer>
     </>

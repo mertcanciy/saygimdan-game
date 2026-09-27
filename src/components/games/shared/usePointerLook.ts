@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useThree } from "@react-three/fiber";
 import type { RefObject } from "react";
-import { isTouchDevice } from "./input";
+import { isTouchDevice, onVirtualLook } from "./input";
 
 export interface PointerLook {
   yaw: RefObject<number>;
@@ -23,12 +23,16 @@ export interface PointerLook {
  * Pointer-lock look controls. Click the canvas to lock; mouse movement
  * updates yaw/pitch refs (no re-renders). Also tracks a "virtual stick"
  * (mouse position relative to center) that works without pointer lock.
+ * On touch screens a finger dragging the canvas (or a drag that started on a
+ * look-enabled button, see touch/kit.tsx) is the mouse; `touchDrag=false`
+ * turns that off for games steered by an on-screen stick instead.
  * Must be used inside <Canvas>.
  */
 export function usePointerLook(
   sensitivity = 0.002,
   pitchClamp = 1.2,
-  enableLock = true
+  enableLock = true,
+  touchDrag = true
 ): PointerLook {
   const gl = useThree((s) => s.gl);
   const yaw = useRef(0);
@@ -48,8 +52,14 @@ export function usePointerLook(
     let lastX = 0;
     let lastY = 0;
     const TOUCH_GAIN = 2.2;
+    const touchLook = (dx: number, dy: number) => {
+      if (dx !== 0 || dy !== 0) lastLook.current = performance.now();
+      yaw.current -= dx * sensitivity * TOUCH_GAIN;
+      pitch.current = Math.max(-pitchClamp, Math.min(pitchClamp, pitch.current - dy * sensitivity * TOUCH_GAIN));
+    };
+    const offVirtualLook = touchDrag ? onVirtualLook(touchLook) : () => {};
     const onPointerDown = (e: PointerEvent) => {
-      if (e.pointerType === "mouse") return; // buttons: see onMouseDown (pointer events don't report chords)
+      if (e.pointerType === "mouse" || !touchDrag) return; // buttons: see onMouseDown (pointer events don't report chords)
       if (dragId !== null) return;
       dragId = e.pointerId;
       lastX = e.clientX;
@@ -61,9 +71,7 @@ export function usePointerLook(
       const dy = e.clientY - lastY;
       lastX = e.clientX;
       lastY = e.clientY;
-      if (dx !== 0 || dy !== 0) lastLook.current = performance.now();
-      yaw.current -= dx * sensitivity * TOUCH_GAIN;
-      pitch.current = Math.max(-pitchClamp, Math.min(pitchClamp, pitch.current - dy * sensitivity * TOUCH_GAIN));
+      touchLook(dx, dy);
     };
     const onPointerEnd = (e: PointerEvent) => {
       if (e.pointerType === "mouse") return;
@@ -118,6 +126,7 @@ export function usePointerLook(
     window.addEventListener("pointercancel", onPointerEnd);
     document.addEventListener("pointerlockchange", onLockChange);
     return () => {
+      offVirtualLook();
       el.removeEventListener("contextmenu", onContext);
       el.removeEventListener("mousedown", onMouseDown);
       window.removeEventListener("mouseup", onMouseUp);
@@ -131,7 +140,7 @@ export function usePointerLook(
       document.removeEventListener("pointerlockchange", onLockChange);
       if (document.pointerLockElement === el) document.exitPointerLock();
     };
-  }, [gl, sensitivity, pitchClamp, enableLock]);
+  }, [gl, sensitivity, pitchClamp, enableLock, touchDrag]);
 
   return { yaw, pitch, locked, mouseDown, rightDown, stick, lastLook };
 }
