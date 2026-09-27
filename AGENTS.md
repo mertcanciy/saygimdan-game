@@ -65,7 +65,7 @@ public/models/ (spiderman.glb) · public/covers/<slug>.jpg (oyun kapakları)
 - Ağ Sallan'da havadayken sol çubuk döndürür, kamera arkadan takip eder (`TOUCH`): serbest uçuşta hız vektörü döner; ağdayken yanal çekiş kuvveti (ip olduğu yerde kalır; ip ucunu kaydırma), çapa arkada kalınca yeni ağ dönüşün iç tarafına (bekleme süreli).
 - Makas: korna sağ grupta (frenin üstünde), gazla arasına basınca ikisi birden; direksiyon göbeği sadece süs (korna orada olunca direksiyonu çeviren başparmak korna çalamıyordu).
 - Drift dokunmatikte varsayılan **otomatik gaz** (`touchPrefs.ts`, üstteki "Oto gaz" düğmesi, cihazda hatırlanır): sağda el freni + fren. Kapatınca pedallar gelir.
-- Duraklatma (dokunmatik): oynarken aynı URL'ye bir geçmiş kaydı eklenir; iOS kenar kaydırması / Android geri hareketi oyundan çıkarmaz, duraklatma ekranını açar (ikinci geri gerçekten çıkar). Uygulama arka plana gidince de duraklar. `PlayShell.tsx` → `phase`.
+- Duraklatma (dokunmatik): oynarken aynı URL'ye bir geçmiş kaydı eklenir; iOS kenar kaydırması / Android geri hareketi oyundan çıkarmaz, duraklatma ekranını açar (ikinci geri gerçekten çıkar). Android'de tam ekrandayken ilk Geri tam ekrandan çıkar; oyun sırasında Tam ekran düğmesi dışındaki bir yolla tam ekrandan çıkmak oyunu da duraklatır. Uygulama arka plana gidince de duraklar. `PlayShell.tsx` → `phase`.
 - His testleri (`/tmp/sgmobile/t-feel.mjs` tipi): "girdi geliyor mu" yetmez; parmak X px oynayınca çıktı ne kadar, hızlı savuruşta tam kilide varıyor mu, ilk temas sıfır mı, dönüş hızı °/s kaç, bunları ölç.
 
 ## Şarkı

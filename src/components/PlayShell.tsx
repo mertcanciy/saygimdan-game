@@ -53,6 +53,7 @@ export default function PlayShell({ game }: { game: GameInfo }) {
   const [showControls, setShowControls] = useState(false);
   const [portraitOk, setPortraitOk] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
+  const userLeftFullscreen = useRef(false);
   const hold = phase === "paused" || (touch && portrait && !portraitOk);
 
   useEffect(() => {
@@ -104,11 +105,24 @@ export default function PlayShell({ game }: { game: GameInfo }) {
     const onHide = () => {
       if (document.visibilityState === "hidden") setPhase("paused");
     };
+    const onFullscreenChange = () => {
+      if (document.fullscreenElement) {
+        userLeftFullscreen.current = false;
+        return;
+      }
+      if (userLeftFullscreen.current) {
+        userLeftFullscreen.current = false;
+        return;
+      }
+      setPhase("paused");
+    };
     window.addEventListener("popstate", onPop);
     document.addEventListener("visibilitychange", onHide);
+    document.addEventListener("fullscreenchange", onFullscreenChange);
     return () => {
       window.removeEventListener("popstate", onPop);
       document.removeEventListener("visibilitychange", onHide);
+      document.removeEventListener("fullscreenchange", onFullscreenChange);
       // paused some other way: drop the guard entry again (unless the page is going away)
       if (!popped && window.history.state?.saygimdanPause && window.location.pathname === `/play/${game.slug}`) window.history.back();
     };
@@ -125,8 +139,13 @@ export default function PlayShell({ game }: { game: GameInfo }) {
   };
 
   const toggleFullscreen = () => {
-    if (document.fullscreenElement) void document.exitFullscreen();
-    else void enterLandscapeFullscreen();
+    if (document.fullscreenElement) {
+      userLeftFullscreen.current = true;
+      void document.exitFullscreen();
+    } else {
+      userLeftFullscreen.current = false;
+      void enterLandscapeFullscreen();
+    }
   };
 
   return (
