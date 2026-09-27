@@ -701,7 +701,7 @@ function DriftScene({ started, onHud }: { started: boolean; onHud: (h: Hud) => v
 function NavArrow({ deg, label }: { deg: number; label: string }) {
   return (
     <div className="pointer-events-none absolute inset-x-0 top-4 flex justify-center short:top-3 narrow:top-[13.5rem]">
-      <div className="flex items-center gap-2.5 rounded-full bg-[#0a0a0a]/80 py-1.5 pl-1.5 pr-4 text-white backdrop-blur">
+      <div className="flex items-center gap-2.5 rounded-full bg-[#0a0a0a]/85 py-1.5 pl-1.5 pr-4 text-white">
         <span className="grid size-8 place-items-center rounded-full bg-red text-white">
           <svg
             viewBox="0 0 24 24"
