@@ -6,6 +6,7 @@ import { Canvas, useFrame } from "@react-three/fiber";
 import { mulberry32 } from "./shared/cityGen";
 import { useKeys, makeEdge } from "./shared/useKeys";
 import { virtualSteer } from "./shared/input";
+import { useIsTouch } from "./shared/useDevice";
 import Particles, { type ParticleHandle } from "./shared/Particles";
 import { WorldAtmosphere, WorldEffects, CANVAS_GL, useCanvasDpr } from "./shared/World";
 import { HudStat, HudBanner, HudModal, HudBar, HudCenter } from "./shared/GameHud";
@@ -612,6 +613,17 @@ export default function Traffic({ started }: { started: boolean }) {
     best: 0,
   });
 
+  // touch: the how-to line is for the first seconds only; it used to come back
+  // whenever the car slowed down (e.g. while holding the horn), which read as a glitch
+  const touch = useIsTouch();
+  const [introOver, setIntroOver] = useState(false);
+  useEffect(() => {
+    if (!started) return;
+    const t = setTimeout(() => setIntroOver(true), 5000);
+    return () => clearTimeout(t);
+  }, [started]);
+  const showHint = started && (touch ? !introOver : hud.score === 0 && hud.speed < 25);
+
   // the 3D tree must not re-render with every HUD update (≈10×/s)
   const dpr = useCanvasDpr();
   const scene = useMemo(() => <TrafficScene started={started} onHud={setHud} />, [started]);
@@ -628,7 +640,7 @@ export default function Traffic({ started }: { started: boolean }) {
       </div>
       {hud.bannerId > 0 && <HudBanner keyId={hud.bannerId} text={hud.bannerText} accent={ACCENT} />}
       {hud.crashed && <HudModal title="Çarptın!" accent="#e11d48" lines={["Kombo sıfırlandı, hız düştü"]} tone="danger" />}
-      {started && hud.score === 0 && hud.speed < 25 && (
+      {showHint && (
         <HudCenter
           text="W: gaz · A/D: şerit · Shift: nitro · F: selektör · H: korna · Arabalara yakın geç, çarpma!"
           touchText="Gaz pedalına bas, direksiyonla arabaların dibinden geç"
