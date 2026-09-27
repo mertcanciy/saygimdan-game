@@ -57,15 +57,17 @@ export default function SongDock() {
   const status =
     mode === "missing"
       ? "Şarkı dosyası bulunamadı"
-      : blocked
-        ? "Başlatmak için dokun"
-        : playing
-          ? "Çalıyor, başa sarar"
-          : !started
-            ? "Dinlemek için bas"
-            : mode === "loading"
-              ? "Yükleniyor"
-              : "Durdu";
+      : mode === "error"
+        ? "Yüklenemedi, tekrar dene"
+        : blocked
+          ? "Başlatmak için dokun"
+          : playing
+            ? "Çalıyor, başa sarar"
+            : !started
+              ? "Dinlemek için bas"
+              : mode === "loading"
+                ? "Yükleniyor"
+                : "Durdu";
 
   return (
     <div
@@ -83,9 +85,9 @@ export default function SongDock() {
       aria-label="Şarkı çalar"
     >
       {/* the browser refused to start the song on its own: say what to do, right where to do it */}
-      {blocked && compact && (
+      {(blocked || mode === "error") && compact && (
         <span className="pointer-events-none absolute bottom-full left-1/2 mb-2 -translate-x-1/2 whitespace-nowrap rounded-full bg-ink px-3 py-1.5 text-[12.5px] font-semibold text-paper shadow-[0_6px_18px_-8px_rgba(0,0,0,0.5)] animate-fade-up [[data-touch-controls]_&]:narrow:left-auto [[data-touch-controls]_&]:narrow:right-0 [[data-touch-controls]_&]:narrow:translate-x-0">
-          Şarkı için dokun
+          {mode === "error" ? "Şarkı yüklenemedi, dokun" : "Şarkı için dokun"}
         </span>
       )}
 
@@ -119,7 +121,7 @@ export default function SongDock() {
 
       <div className={`min-w-0 leading-tight ${compact ? "hidden" : ""}`}>
         <div className="text-[13px] font-semibold tracking-[-0.01em] whitespace-nowrap">Bengü, Saygımdan</div>
-        <div className={`text-[11.5px] whitespace-nowrap ${blocked ? "font-semibold text-red" : "text-muted-ink"}`}>{status}</div>
+        <div className={`text-[11.5px] whitespace-nowrap ${blocked || mode === "error" ? "font-semibold text-red" : "text-muted-ink"}`}>{status}</div>
       </div>
 
       {!compact && (mode === "audio" || mode === "youtube") && (

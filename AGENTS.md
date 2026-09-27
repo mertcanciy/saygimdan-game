@@ -65,20 +65,22 @@ public/models/ (spiderman.glb) · public/covers/<slug>.jpg (oyun kapakları)
 - Ağ Sallan'da havadayken sol çubuk döndürür, kamera arkadan takip eder (`TOUCH`): serbest uçuşta hız vektörü döner; ağdayken yanal çekiş kuvveti (ip olduğu yerde kalır; ip ucunu kaydırma), çapa arkada kalınca yeni ağ dönüşün iç tarafına (bekleme süreli).
 - Makas: korna sağ grupta (frenin üstünde), gazla arasına basınca ikisi birden; direksiyon göbeği sadece süs (korna orada olunca direksiyonu çeviren başparmak korna çalamıyordu).
 - Drift dokunmatikte varsayılan **otomatik gaz** (`touchPrefs.ts`, üstteki "Oto gaz" düğmesi, cihazda hatırlanır): sağda el freni + fren. Kapatınca pedallar gelir.
-- Duraklatma (dokunmatik): oynarken aynı URL'ye bir geçmiş kaydı eklenir; iOS kenar kaydırması / Android geri hareketi oyundan çıkarmaz, duraklatma ekranını açar (ikinci geri gerçekten çıkar). Android'de tam ekrandayken ilk Geri tam ekrandan çıkar; oyun sırasında Tam ekran düğmesi dışındaki bir yolla tam ekrandan çıkmak oyunu da duraklatır. Uygulama arka plana gidince de duraklar. `PlayShell.tsx` → `phase`.
+- Duraklatma (dokunmatik): oynarken aynı URL'ye bir geçmiş kaydı eklenir; iOS kenar kaydırması / Android geri hareketi oyundan çıkarmaz, duraklatma ekranını açar (ikinci geri gerçekten çıkar). Android'de tam ekrandayken ilk Geri tam ekrandan çıkar; oyun sırasında Tam ekran düğmesi dışındaki bir yolla tam ekrandan çıkmak oyunu da duraklatır. Uygulama arka plana gidince de duraklar. Oyunlara dön oku, `saygimdanPause` kaydını `/games` ile değiştirir; sonraki Geri `/play/...` sayfasına gider, aynı URL koruma kaydında kalmaz. `PlayShell.tsx` → `phase`.
+- Sahne bekletme: başlangıç ekranında portre yönlendirme perdesinin arkasında da çizilir ve ısınır; oyun sırasında portrede "Dikey devam et" seçilmemişse veya oyun duraklatılmışsa R3F kareleri durur.
 - His testleri (`/tmp/sgmobile/t-feel.mjs` tipi): "girdi geliyor mu" yetmez; parmak X px oynayınca çıktı ne kadar, hızlı savuruşta tam kilide varıyor mu, ilk temas sıfır mı, dönüş hızı °/s kaç, bunları ölç.
 
 ## Şarkı
 - Tarayıcılar sesi sadece dokunuşun içinde başlatır: çalmayı tıklama işleyicisinden **senkron** çağır (`music.play()` / `music.playUnlessPaused()`, ya da `useMusicStore().start`). Araya `await`, efekt ya da `setTimeout` girmesin.
-- Oynatıcı önceden hazırlanır (`music.prepare()`: oyun sayfasında hemen, diğer sayfalarda ilk etkileşimde). Tarayıcı yine reddederse `blocked` olur; dock "Şarkı için dokun" der ve görünmez YouTube oynatıcısı dock'un çal butonunun üstüne yerleşir (dokunuş doğrudan YouTube'a gider).
+- Oynatıcı önceden hazırlanır (`music.prepare()`: oyun sayfasında hemen, diğer sayfalarda ilk etkileşimde). Tarayıcı başlatmayı reddederse `blocked` olur; dock "Şarkı için dokun" der ve görünmez YouTube oynatıcısı dock'un çal butonunun üstüne yerleşir (dokunuş doğrudan YouTube'a gider). YouTube API'si veya oynatıcı 12 saniyede hazır olmazsa `error` görünür; dock'taki hata metni yeniden denemeyi anlatır ve sonraki dokunuş yeni bir yükleme başlatır.
 - Web Audio (korna) için `keepAudioContextUnlocked(ctx)`: iOS'ta sonraki dokunuşta context'i açar.
 
 ## Yeni oyun eklerken dokunulacak yerler
 `lib/games.ts` (GameSlug + kayıt) · `components/games/index.ts` · `app/play/[slug]/page.tsx` (generateStaticParams) · `shared/TouchControls.tsx` (LAYOUTS, TOUCH_HELP) · `public/covers/<slug>.jpg`
 
 ## Performans kuralları (ölçülerek bulundu)
-- DPR'ı sadece `useCanvasDpr`/`WorldEffects` yönetir; Canvas'a sabit `dpr` verme (her render'da adaptif ayarı ezer).
-- Mobilde çözünürlük piksel bütçesiyle (`TOUCH_BUDGETS`, 1.1 MP'den başlar ≈ telefonda DPR 1.8; tablet ×1.7). Sabit DPR 1 telefonda "düşük çözünürlüklü video" gibi görünüyordu. Yavaş cihaz ölçülen fps'e göre tek adımda doğru seviyeye iner (çoğu zaman Başlat ekranı açıkken), adım işe yaramazsa (30 Hz pil tasarrufu, CPU sınırı) durur, asla yukarı çıkmaz. Ekran tazeleme hızı sahne yüklenmeden ölçülür (`measureDisplayHz`).
+- DPR'ı sadece `useCanvasDpr`/`WorldEffects` yönetir; Canvas'a sabit `dpr` verme (her render'da adaptif ayarı ezer). `frameloop` bekletmesi de dört Canvas'a prop olarak verilir; R3F her render'da Canvas ayarlarını yeniden uygular.
+- Mobilde çözünürlük piksel bütçesiyle (`TOUCH_BUDGETS`, `screen.width × screen.height`, 1.1 MP'den başlar ≈ telefonda DPR 1.8; tablet ×1.7); yön değişince ekran piksel alanı sabit kalır. Kalite seviyesi oyun başına saklanır. Sabit DPR 1 telefonda "düşük çözünürlüklü video" gibi görünüyordu. Yavaş cihaz ölçülen fps'e göre tek adımda doğru seviyeye iner (çoğu zaman Başlat ekranı açıkken), adım işe yaramazsa (30 Hz pil tasarrufu, CPU sınırı) durur, asla yukarı çıkmaz. Ekran tazeleme hızı sahne yüklenmeden 45 kare ölçülür (`measureDisplayHz`, en çok 1500 ms); oyun sahnesi ölçüm bitmeden mount edilmez.
+- Bekletme, CSS boyutu veya DPR değişince fps ölçümü sıfırlanır ve bir saniye bekler; DPR değişince post-processing composer hedefleri de yeniden boyutlanır.
 - Mobilde bloom zinciri kısa (`levels 6`), SMAA `LOW`: daha az tam ekran geçiş = daha çok piksel.
 - Oyun ekranında (canvas üstünde) `backdrop-blur` kullanma.
 - N8AO'nun transparency-aware modunu açma (sahneyi 2 kez fazladan çizer).

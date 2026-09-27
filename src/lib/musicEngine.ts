@@ -19,7 +19,7 @@
 import { create } from "zustand";
 import { MUSIC } from "./music";
 
-export type MusicMode = "idle" | "loading" | "audio" | "youtube" | "missing";
+export type MusicMode = "idle" | "loading" | "audio" | "youtube" | "missing" | "error";
 
 interface YTPlayer {
   playVideo: () => void;
@@ -95,6 +95,8 @@ class MusicEngine {
     this.bindPageEvents();
     this.preparing ??= this.build().catch((e) => {
       console.warn("music: player failed to load", e);
+      this.preparing = null;
+      this.set({ mode: "error", ready: false });
     });
     return this.preparing;
   }
@@ -107,7 +109,10 @@ class MusicEngine {
       a.preload = "auto";
       a.volume = this.effectiveVolume();
       a.addEventListener("playing", () => this.onPlaying());
-      a.addEventListener("pause", () => this.set({ playing: false }));
+      a.addEventListener("pause", () => {
+        if (this.want && !this.userPaused && document.visibilityState === "visible") this.set({ playing: false, blocked: true });
+        else this.set({ playing: false });
+      });
       this.audio = a;
       this.set({ mode: "audio", ready: true });
       return;
@@ -117,7 +122,7 @@ class MusicEngine {
       return;
     }
     await loadYouTubeApi();
-    await new Promise<void>((resolve) => {
+    await new Promise<void>((resolve, reject) => {
       const host = document.createElement("div");
       host.setAttribute("aria-hidden", "true");
       host.style.cssText = HOST_HIDDEN;
@@ -125,31 +130,53 @@ class MusicEngine {
       host.appendChild(el);
       document.body.appendChild(host);
       this.host = host;
-      const player = new window.YT!.Player(el, {
-        width: String(YT_SIZE),
-        height: String(YT_SIZE),
-        videoId: MUSIC.youtubeId,
-        playerVars: { loop: 1, playlist: MUSIC.youtubeId, controls: 0, disablekb: 1, playsinline: 1, fs: 0, rel: 0 },
-        events: {
-          onReady: () => {
-            this.yt = player;
-            player.setVolume(Math.round(this.effectiveVolume() * 100));
-            this.set({ mode: "youtube", ready: true });
-            // asked to play before the player existed: try now (may be refused on iOS → blocked)
-            if (this.want && !this.userPaused) this.startNow();
-            resolve();
+      let settled = false;
+      const timeout = window.setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        this.host?.remove();
+        this.host = null;
+        reject(new Error("YouTube player did not become ready"));
+      }, 12000);
+      let player: YTPlayer;
+      try {
+        player = new window.YT!.Player(el, {
+          width: String(YT_SIZE),
+          height: String(YT_SIZE),
+          videoId: MUSIC.youtubeId,
+          playerVars: { loop: 1, playlist: MUSIC.youtubeId, controls: 0, disablekb: 1, playsinline: 1, fs: 0, rel: 0 },
+          events: {
+            onReady: () => {
+              if (settled) return;
+              settled = true;
+              window.clearTimeout(timeout);
+              this.yt = player;
+              player.setVolume(Math.round(this.effectiveVolume() * 100));
+              this.set({ mode: "youtube", ready: true });
+              // asked to play before the player existed: try now (may be refused on iOS → blocked)
+              if (this.want && !this.userPaused) this.startNow();
+              resolve();
+            },
+            onStateChange: (e: { data: number }) => {
+              // -1 unstarted, 0 ended, 1 playing, 2 paused, 3 buffering, 5 cued
+              this.ytState = e.data;
+              if (e.data === 1) this.onPlaying();
+              else if (e.data === 0) {
+                player.seekTo?.(0, true);
+                player.playVideo();
+              } else if (e.data === 2) {
+                if (this.want && !this.userPaused && document.visibilityState === "visible") this.set({ playing: false, blocked: true });
+                else this.set({ playing: false });
+              }
+            },
           },
-          onStateChange: (e: { data: number }) => {
-            // -1 unstarted, 0 ended, 1 playing, 2 paused, 3 buffering, 5 cued
-            this.ytState = e.data;
-            if (e.data === 1) this.onPlaying();
-            else if (e.data === 0) {
-              player.seekTo?.(0, true);
-              player.playVideo();
-            } else if (e.data === 2) this.set({ playing: false });
-          },
-        },
-      });
+        });
+      } catch (error) {
+        window.clearTimeout(timeout);
+        this.host?.remove();
+        this.host = null;
+        reject(error);
+      }
     });
   }
 
@@ -266,17 +293,29 @@ function loadYouTubeApi(): Promise<void> {
   if (window.YT?.Player) return Promise.resolve();
   ytApi ??= new Promise<void>((resolve, reject) => {
     const prev = window.onYouTubeIframeAPIReady;
+    let settled = false;
+    const fail = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeout);
+      ytApi = null;
+      window.onYouTubeIframeAPIReady = prev;
+      document.querySelector<HTMLScriptElement>(`script[src="${YT_API}"]`)?.remove();
+      reject(error);
+    };
+    const timeout = window.setTimeout(() => fail(new Error("YouTube API timed out")), 12000);
     window.onYouTubeIframeAPIReady = () => {
       prev?.();
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeout);
       resolve();
     };
-    if (!document.querySelector(`script[src="${YT_API}"]`)) {
-      const tag = document.createElement("script");
-      tag.src = YT_API;
-      tag.async = true;
-      tag.onerror = () => reject(new Error("YouTube API failed to load"));
-      document.body.appendChild(tag);
-    }
+    const tag = document.querySelector<HTMLScriptElement>(`script[src="${YT_API}"]`) ?? document.createElement("script");
+    tag.src = YT_API;
+    tag.async = true;
+    tag.onerror = () => fail(new Error("YouTube API failed to load"));
+    if (!tag.isConnected) document.body.appendChild(tag);
   });
   return ytApi;
 }

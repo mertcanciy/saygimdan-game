@@ -324,16 +324,17 @@ const levelCount = () => (isTouchDevice() ? TOUCH_BUDGETS.length : DPR_STEPS.len
 function dprFor(level: number, cssPixels: number) {
   const css = Math.max(1, cssPixels);
   if (isTouchDevice()) {
+    const screenPixels = Math.max(1, window.screen.width * window.screen.height);
     const max = Math.min(window.devicePixelRatio || 1, TOUCH_MAX_DPR);
-    return Math.min(max, Math.max(0.75, Math.floor(Math.sqrt(touchBudget(level) / css) * 8) / 8));
+    return Math.min(max, Math.max(0.75, Math.floor(Math.sqrt(touchBudget(level) / screenPixels) * 8) / 8));
   }
   const budget = Math.max(1, Math.sqrt(PIXEL_BUDGET / css));
   return Math.min(window.devicePixelRatio, DPR_STEPS[level], budget);
 }
 
-/** Level a device settled on this session; the next game starts there instead of re-learning it. */
-let learnedLevel = 0;
-const startLevel = () => learnedLevel;
+/** Keep a settled quality level per game for this session. */
+const learnedLevels = new Map<string, number>();
+const startLevel = () => learnedLevels.get(window.location.pathname) ?? 0;
 
 /*
  * The render DPR lives here and reaches the renderer through the Canvas `dpr`
@@ -375,6 +376,11 @@ function subscribeSceneHold(l: () => void) {
 
 function readSceneHold() {
   return sceneHold;
+}
+
+export function useSceneFrameloop(): "always" | "never" {
+  const hold = useSyncExternalStore(subscribeSceneHold, readSceneHold, () => false);
+  return hold ? "never" : "always";
 }
 
 function readDpr() {
@@ -487,8 +493,13 @@ const MONITOR = {
  * under the target frame rate; `onSlow` returns false when there is nothing
  * left to drop. Stops for good once a step bought less than 10 %.
  */
-function useFrameRateGuard(touch: boolean, onSlow: (ratio: number) => boolean) {
-  const st = useRef({ age: 0, t: 0, n: 0, slow: 0, slowFps: 0, lastFps: 0, settle: 0, done: false });
+function useFrameRateGuard(touch: boolean, resetKey: string, onSlow: (ratio: number) => boolean) {
+  const st = useRef({ age: 0, grace: 0, t: 0, n: 0, slow: 0, slowFps: 0, lastFps: 0, settle: 0, done: false });
+  useEffect(() => {
+    const m = st.current;
+    m.t = m.n = m.slow = m.slowFps = 0;
+    m.grace = m.age + 1;
+  }, [resetKey]);
   useFrame((_, dt) => {
     const m = st.current;
     if (m.done) return;
@@ -499,6 +510,7 @@ function useFrameRateGuard(touch: boolean, onSlow: (ratio: number) => boolean) {
       return;
     }
     if (m.age < (touch ? MONITOR.warmupTouch : MONITOR.warmupDesktop)) return;
+    if (m.age < m.grace) return;
     m.t += dt;
     m.n++;
     if (m.t < MONITOR.window) return;
@@ -554,26 +566,41 @@ export function WorldEffects({ preset, ao = true, started = false }: { preset: W
   const p = PRESETS[preset];
   const composer = useRef<PPEffectComposer>(null);
   const hold = useSyncExternalStore(subscribeSceneHold, readSceneHold, () => false);
-  const setFrameloop = useThree((s) => s.setFrameloop);
   useWarmUp(composer, started);
   useFakeGpuLoad();
   const cssPixels = useThree((s) => s.size.width * s.size.height);
+  const size = useThree((s) => s.size);
+  const dpr = useThree((s) => s.viewport.dpr);
+  const gl = useThree((s) => s.gl);
   const touch = useMemo(() => isTouchDevice(), []);
   const [level, setLevel] = useState(startLevel);
   const levelRef = useRef(level);
   const [aoOn, setAoOn] = useState(() => ao && !touch);
   const aoRef = useRef(aoOn);
   const drops = useRef(0);
-  useEffect(() => setFrameloop(hold ? "never" : "always"), [hold, setFrameloop]);
+  const appliedPr = useRef<number | null>(null);
+  useFrame(() => {
+    const pr = gl.getPixelRatio();
+    if (appliedPr.current === null) {
+      appliedPr.current = pr;
+      return;
+    }
+    if (pr !== appliedPr.current) {
+      composer.current?.setSize(size.width, size.height);
+      appliedPr.current = pr;
+    }
+  }, 0.95);
   // re-evaluated on resize / fullscreen too (the budget depends on the canvas
   // size); R3F only reallocates when the resulting DPR actually changes
   useEffect(() => {
     setCanvasDpr(dprFor(level, cssPixels));
   }, [level, cssPixels]);
-  useFrameRateGuard(touch, (ratio) => {
+  const resetKey = `${hold}|${cssPixels}|${dpr}`;
+  useFrameRateGuard(touch, resetKey, (ratio) => {
     const last = levelCount() - 1;
     const step = (next: number) => {
-      levelRef.current = learnedLevel = next;
+      levelRef.current = next;
+      learnedLevels.set(window.location.pathname, next);
       setLevel(next);
       return true;
     };
