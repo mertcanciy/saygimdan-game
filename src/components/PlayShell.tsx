@@ -12,7 +12,9 @@ import { useIsPortrait, useIsTouch } from "@/components/games/shared/useDevice";
 import { Keys, Pill } from "@/components/site/Chrome";
 
 function canFullscreen() {
-  return typeof document !== "undefined" && !!document.documentElement.requestFullscreen;
+  if (typeof document === "undefined" || !document.documentElement.requestFullscreen) return false;
+  // installed app (manifest display: fullscreen) is already full screen: nothing to toggle
+  return !window.matchMedia("(display-mode: fullscreen)").matches;
 }
 
 async function enterLandscapeFullscreen() {
