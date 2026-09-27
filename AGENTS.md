@@ -42,6 +42,8 @@ src/components/
       TouchControls.tsx   oyun başına dokunmatik düzen (LAYOUTS, TOUCH_HELP)
       touch/              dokunmatik parçalar: kit.tsx (boyutlar, buton yüzleri, parmağı takip eden
                           Cluster), SteeringWheel.tsx, Stick.tsx, ThrottleLever.tsx
+      touchPrefs.ts       dokunmatik tercihler (Drift otomatik gaz), cihazda saklanır
+      touchRecorder.ts    ?rec=1 gerçek cihaz dokunuş kaydı (tekrar oynatmak için)
       input.ts useKeys.ts usePointerLook.ts useDevice.ts   klavye + sanal tuşlar/analog girdiler, fare, cihaz
       Particles.tsx Rings.tsx Car.tsx
     spiderman/ drift/ f16/ cars/   oyuna özel modüller (cars/ = Drift + Makas ortak araçlar)
@@ -58,7 +60,11 @@ public/models/ (spiderman.glb) · public/covers/<slug>.jpg (oyun kapakları)
 - Boyutlar ekranın kısa kenarına göre (`vmin`, `touch/kit.tsx` → `SIZE_VARS`); yatay telefonda ana buton ≈82 px, direksiyon ≈160 px.
 - Sağ taraftaki butonlar bir `Cluster`: parmak kaldırmadan butondan butona kayılır (Gaz → Nitro), `chord` iki butonun arasına basınca ikisini birden basar (Gaz + El freni), `look` butondan başlayan sürükleme kamerayı çevirir (Ağ).
 - Joystick ve direksiyon **ilk temas noktasını** referans alır ve dokunuş boyunca değiştirmez: çıktı = parmağın ilk değdiği yerden uzaklığı (joystick kenarda kırpılır, merkez kaymaz; direksiyon sadece yatay kaymaya bakar, ~75 px = tam kilit). Açıya ya da ekran kenarına göre hesaplama geri getirme; telefonda "saçmalıyor" diye geri döndü.
-- F-16 dokunmatikte sol çubukla uçar (`TOUCH_FLY`): yana = yatış açısı, yukarı/aşağı = tırmanış açısı, tutulur; bırakınca düz uçuş. Ağ Sallan'da havadayken sol çubuk salınımı (hız + ip) döndürür, kamera arkadan takip eder (`TOUCH`).
+- F-16 dokunmatikte sol çubukla uçar (`TOUCH_FLY`): yana = yatış açısı, yukarı/aşağı = tırmanış açısı, tutulur; bırakınca düz uçuş. Çubuğun ucu (eksen başına > 0.88, halka kırmızı yanar) sert manevra: yukarı = sürekli çekiş (loop), yana = 84° yatış + çekiş (sert dönüş), aşağı = dik dalış.
+- Ağ Sallan'da havadayken sol çubuk döndürür, kamera arkadan takip eder (`TOUCH`): serbest uçuşta hız vektörü döner; ağdayken yanal çekiş kuvveti (ip olduğu yerde kalır; ip ucunu kaydırma), çapa arkada kalınca yeni ağ dönüşün iç tarafına (bekleme süreli).
+- Makas: korna sağ grupta (frenin üstünde), gazla arasına basınca ikisi birden; direksiyon göbeği sadece süs (korna orada olunca direksiyonu çeviren başparmak korna çalamıyordu).
+- Drift dokunmatikte varsayılan **otomatik gaz** (`touchPrefs.ts`, üstteki "Oto gaz" düğmesi, cihazda hatırlanır): sağda el freni + fren. Kapatınca pedallar gelir.
+- Duraklatma (dokunmatik): oynarken aynı URL'ye bir geçmiş kaydı eklenir; iOS kenar kaydırması / Android geri hareketi oyundan çıkarmaz, duraklatma ekranını açar (ikinci geri gerçekten çıkar). Uygulama arka plana gidince de duraklar. `PlayShell.tsx` → `phase`.
 - His testleri (`/tmp/sgmobile/t-feel.mjs` tipi): "girdi geliyor mu" yetmez; parmak X px oynayınca çıktı ne kadar, hızlı savuruşta tam kilide varıyor mu, ilk temas sıfır mı, dönüş hızı °/s kaç, bunları ölç.
 
 ## Şarkı
@@ -83,3 +89,5 @@ public/models/ (spiderman.glb) · public/covers/<slug>.jpg (oyun kapakları)
 - Tam ekran + yatay kilit `PlayShell.tsx`'te (iOS kilidi desteklemez → "yan çevir" ekranı).
 - Headless test (sadece dev): `window.__touch` (sanal tuşlar + analog girdiler), `__traffic`, `__drift`, `__f16`, `__spider` (oyun durumu), `__music()` (şarkı durumu). Çoklu dokunuş için CDP `Input.dispatchTouchEvent` (parmağı kaldırmak: o noktayla `touchEnd`). `?gpuload=12`: her kareye milyon piksel başına 12 ms yük ekler (yavaş telefon GPU'su taklidi, adaptif kaliteyi denemek için).
 - Mobil autoplay'i denemek için Chrome'u `--autoplay-policy=user-gesture-required` ile aç.
+- Gerçek cihaz kaydı: oyun sayfasına `?rec=1` ekle → oyna → üstteki "● Kayıt" (ya da geri kaydır) → "Dokunuş kaydını paylaş" (paylaşım menüsü / indirme). Dosya gerçek parmak hareketlerini (koalesce örnekler dahil, son ~90 s) içerir; headless Chrome'da aynı viewport ile tekrar oynatılabilir (CDP touch). Hiçbir yere gönderilmez. `shared/touchRecorder.ts`.
+- His testlerinde parmakları insanlaştır: hedeften birkaç px sapan temas, eğri ve yumuşak yol, ~120 Hz örnek, örnek başına ~1 px titreme. Sadece kusursuz sentetik dokunuşla geçen test yetmez.

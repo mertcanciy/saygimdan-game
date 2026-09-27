@@ -8,7 +8,8 @@ import Car, { CarHandle } from "./shared/Car";
 import { generateCity, mulberry32, clampToPlayArea, distanceToEdge, BOUNDARY_WARN } from "./shared/cityGen";
 import { WorldAtmosphere, WorldEffects, CANVAS_GL, PRESETS, useCanvasDpr } from "./shared/World";
 import { useKeys, makeEdge } from "./shared/useKeys";
-import { virtualSteer } from "./shared/input";
+import { isTouchDevice, virtualSteer } from "./shared/input";
+import { useTouchPrefs } from "./shared/touchPrefs";
 import { stepDrift, TYRE, type DriftBody } from "./cars/driftPhysics";
 import Particles, { type ParticleHandle } from "./shared/Particles";
 import TireSmoke, { type SmokeHandle } from "./cars/TireSmoke";
@@ -171,6 +172,7 @@ function DriftScene({ started, onHud }: { started: boolean; onHud: (h: Hud) => v
   );
 
   const keys = useKeys();
+  const touch = useMemo(() => isTouchDevice(), []);
   const edge = useMemo(() => makeEdge(), []);
   const car = useRef<CarHandle>(null);
   const smoke = useRef<SmokeHandle>(null);
@@ -284,6 +286,8 @@ function DriftScene({ started, onHud }: { started: boolean; onHud: (h: Hud) => v
     const cam = camera as THREE.PerspectiveCamera;
     const dt = Math.min(rawDt, 1 / 30);
     const k = keys.current;
+    // touch "Oto gaz": the car accelerates unless braking (touchPrefs)
+    const autoGas = touch && useTouchPrefs.getState().driftAutoGas;
     s.t += dt;
     if (started) s.playT += dt;
 
@@ -334,7 +338,7 @@ function DriftScene({ started, onHud }: { started: boolean; onHud: (h: Hud) => v
 
     // ---- car transform ----
     const g = car.current;
-    const throttle = started && (k.has("KeyW") || k.has("ArrowUp"));
+    const throttle = started && (k.has("KeyW") || k.has("ArrowUp") || (autoGas && !k.has("KeyS")));
     const hb = started && k.has("Space");
     if (g?.group) {
       g.group.position.set(rp.x, 0, rp.z);
@@ -547,8 +551,8 @@ function DriftScene({ started, onHud }: { started: boolean; onHud: (h: Hud) => v
       let bvR = stt.vel.x * rgtX + stt.vel.z * rgtZ;
 
       const handbrake = k.has("Space");
-      const gas = k.has("KeyW") || k.has("ArrowUp");
       const brake = k.has("KeyS") || k.has("ArrowDown");
+      const gas = k.has("KeyW") || k.has("ArrowUp") || (autoGas && !brake);
       // on-screen wheel: analog with an expo curve (small slides = fine corrections, a full
       // slide still = full lock); right +, the model wants left +. Keyboard: full lock
       const sv = virtualSteer.value;
@@ -782,7 +786,7 @@ export default function Drift({ started }: { started: boolean }) {
       {started && hud.tip && !hud.idle && (
         <HudHint
           text="Drift: 60+ km/h'de Space'e dokun ya da gazla direksiyonu kır · gazı bırak ya da karşı direksiyon ver, araç toparlar · R: son kapıya dön"
-          touchText="Drift: hızlıyken el freni · toparlamak için gazı bırak"
+          touchText="Drift: hızlıyken el freni + direksiyon · toparlamak için ters direksiyon"
         />
       )}
     </div>

@@ -14,13 +14,27 @@ import { EDGE_BOTTOM, EDGE_LEFT, NO_TAP_HIGHLIGHT, ZONE_TOP, buzz } from "./kit"
 const KEY_DZ = 0.3;
 /** full deflection, as a share of the stick's drawn size */
 const RADIUS = 0.4;
+/**
+ * When the rim lights up: "axis" = one axis past 0.88 (F-16: loop / hard turn /
+ * steep dive), "radius" = pushed all the way out in any direction (Ağ Sallan: sprint).
+ */
+const RIM = { axis: 0.88, radius: 0.97 };
 
-export default function Stick({ keys = true, label = "Hareket: sol başparmağını sürükle" }: { keys?: boolean; label?: string }) {
+export default function Stick({
+  keys = true,
+  label = "Hareket: sol başparmağını sürükle",
+  rimMode = "radius",
+}: {
+  keys?: boolean;
+  label?: string;
+  rimMode?: "axis" | "radius";
+}) {
   const zone = useRef<HTMLDivElement>(null);
   const rest = useRef<HTMLDivElement>(null);
   const baseEl = useRef<HTMLDivElement>(null);
   const knobEl = useRef<HTMLDivElement>(null);
   const pointer = useRef<number | null>(null);
+  const atRim = useRef(false);
   /** where the thumb landed (client px) */
   const origin = useRef({ x: 0, y: 0 });
   const radius = useRef(56);
@@ -49,6 +63,12 @@ export default function Stick({ keys = true, label = "Hareket: sol başparmağı
     setKeys(nx, ny);
     const k = knobEl.current;
     if (k) k.style.transform = `translate(-50%, -50%) translate3d(${nx * R}px, ${-ny * R}px, 0)`;
+    const rim = rimMode === "axis" ? Math.max(Math.abs(nx), Math.abs(ny)) > RIM.axis : m >= RIM.radius;
+    if (rim !== atRim.current) {
+      atRim.current = rim;
+      if (rim) buzz(12);
+      baseEl.current?.classList.toggle("stick-rim", rim);
+    }
   };
 
   const end = (e?: React.PointerEvent) => {
@@ -59,6 +79,8 @@ export default function Stick({ keys = true, label = "Hareket: sol başparmağı
     virtualStick.active = false;
     setKeys(0, 0);
     setActive(false);
+    atRim.current = false;
+    baseEl.current?.classList.remove("stick-rim");
     const k = knobEl.current;
     if (k) k.style.transform = "translate(-50%, -50%)";
   };

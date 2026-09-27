@@ -63,8 +63,12 @@ const TOUCH = {
   swingSteer: 10,
   /** camera catching up behind a running hero (keyboard: 1.2) */
   groundFollow: 2.4,
-  /** mid-swing, once the anchor has been swung round this far (m), the next web goes out */
-  reanchor: 9,
+  /** cap on the sideways pull while swinging (m/s², ≈ 4 g) */
+  swingPullMax: 40,
+  /** while turning, re-web once the anchor is this far behind (cos of the angle to the path) */
+  reanchorBehind: -0.15,
+  /** …but not more often than this (s) */
+  reanchorCooldown: 0.8,
   /** anchor search leans this far towards the stick (rad at full stick) */
   anchorLean: 0.5,
   /** stick pushed this far (0..1) on the ground = sprint */
@@ -457,8 +461,8 @@ function SpidermanScene({ started, onHud }: { started: boolean; onHud: (h: Hud) 
     /** analog input magnitude 0..1 (touch stick) */
     wishMag: 0,
 
-    /** metres the current web's anchor has been swung round by touch turning */
-    anchorSlid: 0,
+    /** cooldown before the next mid-swing re-web while turning (touch) */
+    reanchorT: 0,
     /** render-only offset that absorbs position snaps (vaults, corners), decays to 0 */
     visOff: new THREE.Vector3(),
     /** smoothed offset from `pos` to the body's centre of mass */
@@ -1026,20 +1030,24 @@ function SpidermanScene({ started, onHud }: { started: boolean; onHud: (h: Hud) 
     s.wishMag = Math.min(1, Math.hypot(s.inX, s.inY));
     if (wl > 1) _wish.divideScalar(wl);
     if (carve) {
-      // rotate the whole swing about the hero: the velocity, and the rope's anchor with it
-      const a = -touchTurn(s.inX) * TOUCH.turnRate * h;
-      const c = Math.cos(a);
-      const sn = Math.sin(a);
-      const vx = s.vel.x;
-      s.vel.x = vx * c + s.vel.z * sn;
-      s.vel.z = -vx * sn + s.vel.z * c;
-      const w = s.web;
-      if (w) {
-        const ax = w.anchor.x - s.pos.x;
-        const az = w.anchor.z - s.pos.z;
-        w.anchor.x = s.pos.x + ax * c + az * sn;
-        w.anchor.z = s.pos.z - ax * sn + az * c;
-        s.anchorSlid += Math.abs(a) * Math.hypot(ax, az);
+      const turn = -touchTurn(s.inX); // + = left
+      if (s.web && s.holding) {
+        // swinging: a sideways pull bends the path (the rope stays where it stuck;
+        // the rope constraint takes out whatever pulls along it)
+        const hv = Math.hypot(s.vel.x, s.vel.z) || 1;
+        const pull = Math.min(TOUCH.swingPullMax, Math.abs(turn) * TOUCH.turnRate * hv) * Math.sign(turn) * h;
+        const lx = s.vel.z / hv; // left of travel
+        const lz = -s.vel.x / hv;
+        s.vel.x += lx * pull;
+        s.vel.z += lz * pull;
+      } else {
+        // free flight: turn the path
+        const a = turn * TOUCH.turnRate * h;
+        const c = Math.cos(a);
+        const sn = Math.sin(a);
+        const vx = s.vel.x;
+        s.vel.x = vx * c + s.vel.z * sn;
+        s.vel.z = -vx * sn + s.vel.z * c;
       }
     }
     // touch: stick all the way out on the ground = sprint (no second button needed)
@@ -1282,14 +1290,21 @@ function SpidermanScene({ started, onHud }: { started: boolean; onHud: (h: Hud) 
       } else {
         if (wantWeb && !s.holding && !s.webLock && !s.zip) attachWeb();
         if (!wantWeb && s.holding) releaseWeb();
-        // touch: turning swings the rope's anchor round with the hero (see step); once it
-        // has slid a few metres off the wall, the next web goes out towards the new heading
+        // touch: turning bends the swing until its anchor falls behind; then the next
+        // web goes out, on the inside of the turn (findAnchor), not too often
+        s.reanchorT -= dt;
         const w = s.web;
-        if (touch && w && s.holding && w.t > w.arrive + 0.2 && s.anchorSlid > TOUCH.reanchor) {
-          releaseWeb(false);
-          attachWeb();
+        if (touch && w && s.holding && stickTurn !== 0 && w.t > w.arrive + 0.3 && s.reanchorT <= 0) {
+          const hv = Math.hypot(s.vel.x, s.vel.z) || 1;
+          const ax = w.anchor.x - s.pos.x;
+          const az = w.anchor.z - s.pos.z;
+          const behind = (ax * s.vel.x + az * s.vel.z) / (hv * (Math.hypot(ax, az) || 1));
+          if (behind < TOUCH.reanchorBehind) {
+            releaseWeb(false);
+            attachWeb();
+            s.reanchorT = TOUCH.reanchorCooldown;
+          }
         }
-        if (!s.web) s.anchorSlid = 0;
       }
       if (edge(k, "KeyQ") || rmbPressed) startZip();
       if (edge(k, "KeyR")) reset();

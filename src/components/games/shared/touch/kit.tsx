@@ -123,8 +123,8 @@ export interface PadItem {
   h: string;
   right: string;
   bottom: string;
-  /** a thumb resting on the seam between this button and `chord` presses both */
-  chord?: string;
+  /** a thumb resting on the seam between this button and a `chord` button presses both */
+  chord?: string | string[];
   /** a drag that starts on this button pans the camera (and never slides off it) */
   look?: boolean;
 }
@@ -195,8 +195,8 @@ export function Cluster({
     if (best < 0 || d[best] > SLOP) return [];
     const out = [best];
     const c = items[best].chord;
-    if (c) {
-      const j = items.findIndex((it) => it.btn.code === c);
+    for (const code of typeof c === "string" ? [c] : (c ?? [])) {
+      const j = items.findIndex((it) => it.btn.code === code);
       if (j >= 0 && d[j] <= Math.min(CHORD, d[best] + 10)) out.push(j);
     }
     return out;

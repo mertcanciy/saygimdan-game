@@ -76,11 +76,20 @@ const AIM = {
  * the jet holds them. Centred (or released) = wings level, level flight, so a
  * thumb slipping off never sends the jet tumbling. The expo curve keeps small
  * thumb movements small.
+ * The rim of the stick (outer ~12 %, it lights up red) is for aggressive
+ * flying: up at the rim = keep pulling (a loop), sideways at the rim = a
+ * near-knife-edge hard turn, down at the rim = a steep dive.
  */
 const TOUCH_FLY = {
   maxBank: THREE.MathUtils.degToRad(62),
   climb: THREE.MathUtils.degToRad(28),
   dive: THREE.MathUtils.degToRad(22),
+  /** stick deflection (per axis) where the rim starts */
+  rim: 0.88,
+  hardBank: THREE.MathUtils.degToRad(84),
+  /** stick pull held in the rim's hard turn */
+  hardPull: 0.8,
+  steepDive: THREE.MathUtils.degToRad(55),
   deadzone: 0.1,
   /** 1 = linear, 2 = square: fine control near the centre */
   expo: 1.6,
@@ -694,17 +703,33 @@ function F16Scene({
         _right.set(-1, 0, 0).applyQuaternion(stt.q);
         const bank = Math.atan2(-_right.y, _up.y); // + = rolled right
         const pitch = Math.asin(THREE.MathUtils.clamp(_fwd.y, -1, 1));
-        const tx = virtualStick.active ? stickAxis(virtualStick.x) : 0;
-        const ty = virtualStick.active ? stickAxis(virtualStick.y) : 0;
+        const vx = virtualStick.active ? virtualStick.x : 0;
+        const vy = virtualStick.active ? virtualStick.y : 0;
+        const tx = stickAxis(vx);
+        const ty = stickAxis(vy);
         const bankRate = (bank - stt.lastBank) / h;
-        const pitchRate = (pitch - stt.lastPitch) / h;
+        const pitchRate = THREE.MathUtils.clamp((pitch - stt.lastPitch) / h, -4, 4);
         stt.lastBank = bank;
         stt.lastPitch = pitch;
-        let bankErr = tx * TOUCH_FLY.maxBank - bank;
-        bankErr = Math.atan2(Math.sin(bankErr), Math.cos(bankErr));
-        sx = bankErr * TOUCH_FLY.rollGain - THREE.MathUtils.clamp(bankRate, -6, 6) * TOUCH_FLY.rollDamp;
-        const pitchErr = ty * (ty > 0 ? TOUCH_FLY.climb : TOUCH_FLY.dive) - pitch;
-        sy = (pitchErr * TOUCH_FLY.pitchGain - THREE.MathUtils.clamp(pitchRate, -4, 4) * TOUCH_FLY.pitchDamp) / Math.max(0.4, Math.cos(bank));
+        if (vy > TOUCH_FLY.rim) {
+          // rim, up: keep pulling round (bank is meaningless going vertical: just stop any roll)
+          sy = 1;
+          sx = -THREE.MathUtils.clamp(bankRate, -6, 6) * TOUCH_FLY.rollDamp;
+        } else {
+          const bankT = Math.abs(vx) > TOUCH_FLY.rim ? Math.sign(vx) * TOUCH_FLY.hardBank : tx * TOUCH_FLY.maxBank;
+          let bankErr = bankT - bank;
+          bankErr = Math.atan2(Math.sin(bankErr), Math.cos(bankErr));
+          sx = bankErr * TOUCH_FLY.rollGain - THREE.MathUtils.clamp(bankRate, -6, 6) * TOUCH_FLY.rollDamp;
+          const pitchT = vy < -TOUCH_FLY.rim ? -TOUCH_FLY.steepDive : ty * (ty > 0 ? TOUCH_FLY.climb : TOUCH_FLY.dive);
+          sy = ((pitchT - pitch) * TOUCH_FLY.pitchGain - pitchRate * TOUCH_FLY.pitchDamp) / Math.max(0.4, Math.cos(bank));
+          // rim, sideways: once it's banked over, pull hard — that's what makes the turn tight
+          if (Math.abs(vx) > TOUCH_FLY.rim) {
+            const w = THREE.MathUtils.smoothstep(Math.abs(bank), THREE.MathUtils.degToRad(50), THREE.MathUtils.degToRad(75));
+            sy += (Math.max(sy, TOUCH_FLY.hardPull) - sy) * w;
+          }
+          // upside down (coming out of a loop): no hard pull (it would aim at the ground) until the roll has the canopy up
+          if (Math.cos(bank) < -0.1) sy = THREE.MathUtils.clamp(sy, -0.2, 0.2);
+        }
         stt.yawAuto = 0;
       } else if (!stt.keyboardFlying) {
         _fwd.set(0, 0, 1).applyQuaternion(stt.q);

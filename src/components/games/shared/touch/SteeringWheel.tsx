@@ -6,12 +6,12 @@
 // wherever you grabbed, and a quick ~¾-wheel flick reaches full lock. The
 // wheel turns with it (same angle as the car's own wheel in Makas) and
 // springs back to straight on release. Publishes `virtualSteer`.
-// The hub is a separate button (the horn), styled as a record label.
+// The hub is drawn as a record label; it isn't a button (the horn lives with
+// the right thumb, so honking never stops the steering).
 
 import { useEffect, useRef, useState } from "react";
-import { Megaphone } from "lucide-react";
 import { virtualSteer } from "../input";
-import { EDGE_BOTTOM, EDGE_LEFT, NO_TAP_HIGHLIGHT, ZONE_TOP, buzz, usePress } from "./kit";
+import { EDGE_BOTTOM, EDGE_LEFT, NO_TAP_HIGHLIGHT, ZONE_TOP, buzz } from "./kit";
 
 /** drawn rotation at full lock (rad): matches the Makas cockpit wheel (cars/Cockpit.tsx) */
 export const WHEEL_MAX_ROT = 1.6;
@@ -20,7 +20,7 @@ const TRAVEL_R = 0.95;
 /** travel (share of full) that reads as straight: a resting thumb doesn't wobble the car */
 const DEADZONE = 0.04;
 
-export default function SteeringWheel({ horn }: { horn?: string }) {
+export default function SteeringWheel() {
   const wheel = useRef<HTMLDivElement>(null);
   const g = useRef({ id: -1, x0: 0, travel: 75, value: 0 });
   const [active, setActive] = useState(false);
@@ -103,28 +103,16 @@ export default function SteeringWheel({ horn }: { horn?: string }) {
           <div className="absolute bottom-[6%] left-1/2 top-1/2 w-[9%] -translate-x-1/2 rounded-full bg-[#0e0e10]/55 ring-1 ring-white/25" />
           {/* 12 o'clock stripe, like a racing wheel */}
           <div className="absolute left-1/2 top-[1.5%] h-[12%] w-[7%] -translate-x-1/2 rounded-full bg-red shadow-[0_0_10px_rgba(220,30,42,0.6)]" />
+          {/* hub: a record label (decoration only; the whole wheel steers) */}
+          <div
+            className="absolute inset-[33%] rounded-full shadow-[0_0_0_1.5px_rgba(255,255,255,0.5)]"
+            style={{
+              background:
+                "radial-gradient(circle, #fff 0 7%, var(--red) 8% 52%, #0a0a0a 53% 56%, transparent 57%), repeating-radial-gradient(circle, #0a0a0a 0 1.4px, #26262a 1.4px 2.6px)",
+            }}
+          />
         </div>
-        {horn ? <Hub code={horn} /> : <div aria-hidden className="absolute inset-[34%] rounded-full bg-[#0e0e10]/60 ring-1 ring-white/35" />}
       </div>
     </div>
-  );
-}
-
-/** The horn: a record label in the middle of the wheel (grooves, red label). */
-function Hub({ code }: { code: string }) {
-  const { down, handlers } = usePress({ code, label: "Korna" });
-  return (
-    <button
-      type="button"
-      aria-label="Korna"
-      {...handlers}
-      className={`absolute inset-[30%] grid touch-none place-items-center rounded-full transition-transform duration-75 ${NO_TAP_HIGHLIGHT} ${down ? "scale-90" : ""}`}
-      style={{
-        background: "radial-gradient(circle, var(--red) 0 52%, #0a0a0a 53% 56%, transparent 57%), repeating-radial-gradient(circle, #0a0a0a 0 1.4px, #26262a 1.4px 2.6px)",
-        boxShadow: down ? "0 0 0 3px rgba(255,255,255,0.8), 0 0 22px rgba(220,30,42,0.8)" : "0 0 0 1.5px rgba(255,255,255,0.55)",
-      }}
-    >
-      <Megaphone aria-hidden className="size-[28%] min-h-4 min-w-4 text-white" strokeWidth={2.5} />
-    </button>
   );
 }

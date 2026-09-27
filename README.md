@@ -38,7 +38,7 @@ Bengü'nün **Saygımdan** şarkısını sonsuz loop'ta dinlerken kafa dağıtma
 
 ## Telefonda
 
-- **Kontroller** (`shared/TouchControls.tsx`, `shared/touch/`): Drift ve Makas'ta solda direksiyon: dokunup sağa sola kaydırılır (Makas'ta ortası korna, arabanın kendi direksiyonu da aynı açıda döner), sağda gaz / fren pedalları; Ağ Sallan ve F‑16'da solda joystick (ilk dokunduğun yer merkez); F‑16'da joystick yatış / tırmanış açısı verir, bırakınca düz uçar; sağda gaz kolu (en üst: afterburner). Sağ taraftaki butonlarda parmak kaldırmadan butondan butona kayılır, iki butonun arasına basınca ikisi birden basılır (Gaz + El freni, Gaz + Nitro).
+- **Kontroller** (`shared/TouchControls.tsx`, `shared/touch/`): Drift ve Makas'ta solda direksiyon: dokunup sağa sola kaydırılır (Makas'ta arabanın kendi direksiyonu da aynı açıda döner), sağda gaz / fren pedalları (Makas'ta nitro, korna, selektör de sağda); Drift'te varsayılan otomatik gaz, sağda el freni. Ağ Sallan ve F‑16'da solda joystick (ilk dokunduğun yer merkez); F‑16'da joystick yatış / tırmanış açısı verir, bırakınca düz uçar, sonuna kadar itince takla / sert dönüş; sağda gaz kolu (en üst: afterburner). Geri kaydırma oyundan çıkarmaz, duraklatır. Sağ taraftaki butonlarda parmak kaldırmadan butondan butona kayılır, iki butonun arasına basınca ikisi birden basılır (Gaz + El freni, Gaz + Nitro).
 - **Görüntü**: çözünürlük piksel bütçesiyle (telefonda ≈ DPR 1.8'den başlar), yavaş cihazda ölçülen fps'e göre tek adımda iner.
 - **Şarkı**: Başlat'a dokunulduğu anda başlar (oynatıcı önceden hazırlanır); tarayıcı yine izin vermezse şarkı butonu "Şarkı için dokun" der.
 
