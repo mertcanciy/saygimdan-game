@@ -8,6 +8,7 @@ import Car, { CarHandle } from "./shared/Car";
 import { generateCity, mulberry32, clampToPlayArea, distanceToEdge, BOUNDARY_WARN } from "./shared/cityGen";
 import { WorldAtmosphere, WorldEffects, CANVAS_GL, PRESETS, useCanvasDpr } from "./shared/World";
 import { useKeys, makeEdge } from "./shared/useKeys";
+import { virtualSteer } from "./shared/input";
 import { stepDrift, TYRE, type DriftBody } from "./cars/driftPhysics";
 import Particles, { type ParticleHandle } from "./shared/Particles";
 import TireSmoke, { type SmokeHandle } from "./cars/TireSmoke";
@@ -229,6 +230,11 @@ function DriftScene({ started, onHud }: { started: boolean; onHud: (h: Hud) => v
     zoneAngle: 0,
     edge: false,
   });
+
+  // dev-only handle for headless tests
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "production") (window as unknown as { __drift?: unknown }).__drift = st.current;
+  }, []);
 
   const banner = (text: string, sub = "") => {
     const s = st.current;
@@ -541,7 +547,10 @@ function DriftScene({ started, onHud }: { started: boolean; onHud: (h: Hud) => v
       const handbrake = k.has("Space");
       const gas = k.has("KeyW") || k.has("ArrowUp");
       const brake = k.has("KeyS") || k.has("ArrowDown");
-      const steerIn = (k.has("KeyA") || k.has("ArrowLeft") ? 1 : 0) - (k.has("KeyD") || k.has("ArrowRight") ? 1 : 0);
+      // on-screen wheel: analog (right +, the model wants left +); keyboard: full lock
+      const steerIn = virtualSteer.active
+        ? -virtualSteer.value
+        : (k.has("KeyA") || k.has("ArrowLeft") ? 1 : 0) - (k.has("KeyD") || k.has("ArrowRight") ? 1 : 0);
 
       // ---- tyre model (see cars/driftPhysics.ts) ----
       b.vF = bvF;

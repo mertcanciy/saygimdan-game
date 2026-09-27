@@ -5,6 +5,7 @@ import * as THREE from "three";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { mulberry32 } from "./shared/cityGen";
 import { useKeys, makeEdge } from "./shared/useKeys";
+import { virtualSteer } from "./shared/input";
 import Particles, { type ParticleHandle } from "./shared/Particles";
 import { WorldAtmosphere, WorldEffects, CANVAS_GL, useCanvasDpr } from "./shared/World";
 import { HudStat, HudBanner, HudModal, HudBar, HudCenter } from "./shared/GameHud";
@@ -199,6 +200,11 @@ function TrafficScene({ started, onHud }: { started: boolean; onHud: (h: Hud) =>
     return { cars, oncoming, fleet: [...cars, ...oncoming] as FleetCar[] };
   });
   const sim = useRef(world);
+
+  // dev-only handle for headless tests
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "production") (window as unknown as { __traffic?: unknown }).__traffic = st.current;
+  }, []);
 
   const banner = (text: string) => {
     const s = st.current;
@@ -529,7 +535,10 @@ function TrafficScene({ started, onHud }: { started: boolean; onHud: (h: Hud) =>
       else stt.speed = Math.max(0, stt.speed - 3 * h);
       if (stt.crashT > 0.8) stt.speed = Math.min(stt.speed, 14);
 
-      const inX = (k.has("KeyD") || k.has("ArrowRight") ? 1 : 0) - (k.has("KeyA") || k.has("ArrowLeft") ? 1 : 0);
+      // on-screen wheel: analog; keyboard: full left / right
+      const inX = virtualSteer.active
+        ? virtualSteer.value
+        : (k.has("KeyD") || k.has("ArrowRight") ? 1 : 0) - (k.has("KeyA") || k.has("ArrowLeft") ? 1 : 0);
       const agility = 7 + Math.min(4, stt.speed * 0.08);
       stt.vx += (inX * agility - stt.vx) * Math.min(1, 9 * h);
       stt.px += stt.vx * h;
@@ -616,7 +625,10 @@ export default function Traffic({ started }: { started: boolean }) {
       {hud.bannerId > 0 && <HudBanner keyId={hud.bannerId} text={hud.bannerText} accent={ACCENT} />}
       {hud.crashed && <HudModal title="Çarptın!" accent="#e11d48" lines={["Kombo sıfırlandı, hız düştü"]} tone="danger" />}
       {started && hud.score === 0 && hud.speed < 25 && (
-        <HudCenter text="W: gaz · A/D: şerit · Shift: nitro · F: selektör · H: korna · Arabalara yakın geç, çarpma!" />
+        <HudCenter
+          text="W: gaz · A/D: şerit · Shift: nitro · F: selektör · H: korna · Arabalara yakın geç, çarpma!"
+          touchText="Gaz pedalına bas, direksiyonla arabaların dibinden geç"
+        />
       )}
     </div>
   );

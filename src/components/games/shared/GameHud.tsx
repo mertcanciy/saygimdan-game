@@ -84,13 +84,14 @@ export function HudHint({ text, touchText }: { text: string; touchText?: string 
       className={cn(
         "pointer-events-none absolute inset-x-0 flex justify-center px-4",
         // on touch the bottom corners belong to the thumbs: sit between them, above the song button
-        touch ? "bottom-[calc(max(0.75rem,env(safe-area-inset-bottom))+3.25rem)] narrow:bottom-[calc(max(1.5rem,env(safe-area-inset-bottom))+11rem)]" : "bottom-24"
+        // (portrait: above the thumb controls, left of the song button)
+        touch ? "bottom-[calc(max(0.75rem,env(safe-area-inset-bottom))+3.25rem)] narrow:bottom-[calc(max(1.5rem,env(safe-area-inset-bottom))+13.5rem)]" : "bottom-24"
       )}
     >
       <span
         className={cn(
           "rounded-full bg-white/95 px-4 py-2 text-center text-[13px] text-[#0a0a0a]",
-          touch && "max-w-[min(26rem,50vw)] px-3.5 py-1.5 text-[12.5px] leading-[1.35] narrow:max-w-[70vw]"
+          touch && "max-w-[min(26rem,50vw)] px-3.5 py-1.5 text-[12.5px] leading-[1.35] narrow:max-w-[64vw]"
         )}
       >
         {touch ? touchText : text}

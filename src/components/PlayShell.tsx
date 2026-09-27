@@ -5,10 +5,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Maximize2, Minimize2 } from "lucide-react";
 import { GameInfo } from "@/lib/games";
-import { useHydrated, useMusicStore, useUserStore } from "@/lib/store";
+import { useHydrated, useUserStore } from "@/lib/store";
+import { music } from "@/lib/musicEngine";
 import { GAME_COMPONENTS } from "@/components/games";
 import TouchControls, { TOUCH_HELP } from "@/components/games/shared/TouchControls";
 import { useIsPortrait, useIsTouch } from "@/components/games/shared/useDevice";
+import { measureDisplayHz } from "@/components/games/shared/input";
 import { Keys, Pill } from "@/components/site/Chrome";
 
 function canFullscreen() {
@@ -29,7 +31,6 @@ export default function PlayShell({ game }: { game: GameInfo }) {
   const router = useRouter();
   const user = useUserStore((s) => s.user);
   const hydrated = useHydrated();
-  const startMusic = useMusicStore((s) => s.start);
   const touch = useIsTouch();
   const portrait = useIsPortrait();
   const [started, setStarted] = useState(false);
@@ -41,6 +42,20 @@ export default function PlayShell({ game }: { game: GameInfo }) {
     if (hydrated && !user) router.replace("/#giris");
   }, [hydrated, user, router]);
 
+  // before the 3D scene loads, while frames are still cheap (see World.tsx adaptive quality)
+  useEffect(() => measureDisplayHz(), []);
+
+  // the song dock (root layout) moves out of the thumbs' way while touch controls are up
+  const controlsUp = started && touch;
+  useEffect(() => {
+    if (!controlsUp) return;
+    const html = document.documentElement;
+    html.dataset.touchControls = "";
+    return () => {
+      delete html.dataset.touchControls;
+    };
+  }, [controlsUp]);
+
   useEffect(() => {
     const on = () => setFullscreen(!!document.fullscreenElement);
     document.addEventListener("fullscreenchange", on);
@@ -50,7 +65,9 @@ export default function PlayShell({ game }: { game: GameInfo }) {
   const GameComponent = GAME_COMPONENTS[game.slug];
 
   const begin = () => {
-    startMusic();
+    // first, and synchronously: phones only allow sound to start inside the tap
+    // itself (and requesting fullscreen can use the tap up)
+    music.playUnlessPaused();
     setStarted(true);
     if (touch) void enterLandscapeFullscreen();
   };
@@ -107,7 +124,12 @@ export default function PlayShell({ game }: { game: GameInfo }) {
 
       {/* start sheet (landscape phones: two columns so it fits without scrolling) */}
       {!started && (
-        <div className="absolute inset-0 z-30 flex items-end overflow-y-auto bg-paper/55 backdrop-blur-[6px] sm:items-center short:items-center">
+        <div
+          className={`absolute inset-0 z-30 flex items-end overflow-y-auto sm:items-center short:items-center ${
+            // phones: no live blur over the canvas (costly there, and the quality check already runs behind this sheet)
+            touch ? "bg-paper/75" : "bg-paper/55 backdrop-blur-[6px]"
+          }`}
+        >
           <div className="mx-auto w-full max-w-[1180px] px-4 pb-24 pt-20 sm:px-10 sm:pb-0 short:px-[max(1rem,env(safe-area-inset-left))] short:py-3 short:pt-14">
             <div className="max-w-[34rem] rounded-[28px] bg-paper p-7 shadow-[0_30px_80px_-30px_rgba(0,0,0,0.35)] sm:p-10 short:mx-auto short:grid short:max-w-[46rem] short:grid-cols-[1fr_1.05fr] short:gap-x-7 short:rounded-[22px] short:p-5 narrow:p-6 animate-fade-up">
               <div>

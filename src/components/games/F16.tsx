@@ -8,6 +8,8 @@ import { generateCity, aabbCollide, type Building } from "./shared/cityGen";
 import { WorldAtmosphere, WorldEffects, CANVAS_GL, PRESETS, useCanvasDpr } from "./shared/World";
 import { useKeys, makeEdge } from "./shared/useKeys";
 import { usePointerLook } from "./shared/usePointerLook";
+import { isTouchDevice, virtualStick, virtualThrottle } from "./shared/input";
+import { useIsTouch } from "./shared/useDevice";
 import Rings, { type RingData, ringHit } from "./shared/Rings";
 import Particles, { type ParticleHandle } from "./shared/Particles";
 import { HudStat, HudCenter, HudBanner, HudModal, HudBar, HudHint, HudEdge } from "./shared/GameHud";
@@ -67,6 +69,30 @@ const AIM = {
   bankFull: THREE.MathUtils.degToRad(14),
   yawGain: 3.0,
 };
+
+/*
+ * Touch (on-screen stick): the stick says where to fly relative to the jet's
+ * heading — full right = aim this far right of the nose, full up = climb at
+ * this angle — and the same autopilot flies there. Centred (or released) =
+ * straight and level, so a thumb slipping off never sends the jet tumbling.
+ */
+const TOUCH_AIM = {
+  yaw: THREE.MathUtils.degToRad(42),
+  climb: THREE.MathUtils.degToRad(38),
+  dive: THREE.MathUtils.degToRad(30),
+  deadzone: 0.08,
+  /** 1 = linear, 2 = square: fine control near the centre */
+  expo: 1.5,
+  /** how fast the aim follows the stick (1/s) */
+  follow: 7,
+  /** the chase camera looks this far from the nose towards the aim (0..1) */
+  camLead: 0.45,
+};
+
+function stickAxis(v: number) {
+  const m = Math.max(0, Math.abs(v) - TOUCH_AIM.deadzone) / (1 - TOUCH_AIM.deadzone);
+  return Math.sign(v) * Math.pow(m, TOUCH_AIM.expo);
+}
 
 /** Put a DOM reticle where `dir` (seen from the camera) lands on screen. */
 function placeReticle(el: HTMLDivElement | null, cam: THREE.Camera, dir: THREE.Vector3, on: boolean) {
@@ -205,7 +231,9 @@ function F16Scene({
 
   const keys = useKeys();
   const edge = useMemo(() => makeEdge(), []);
-  const { yaw: lookYaw, pitch: lookPitch, locked } = usePointerLook(AIM.sensitivity, 1e6, true);
+  // touch flies with the on-screen stick, not by dragging the view
+  const touch = useMemo(() => isTouchDevice(), []);
+  const { yaw: lookYaw, pitch: lookPitch, locked } = usePointerLook(AIM.sensitivity, 1e6, true, !touch);
   const lockedRef = useRef(false);
   useEffect(() => {
     lockedRef.current = locked;
@@ -275,6 +303,8 @@ function F16Scene({
     keyboardFlying: false,
     locked: false,
     yawAuto: 0,
+    /** last well-defined heading (touch aim, for a nose pointing straight up/down) */
+    heading: Math.PI / 2,
   });
 
   const banner = (text: string) => {
@@ -384,7 +414,16 @@ function F16Scene({
       s.lastLookPitch = lookPitch.current;
       s.locked = lockedRef.current;
       _fwd.set(0, 0, 1).applyQuaternion(s.q);
-      if (s.locked && !s.crashed && !s.keyboardFlying) {
+      if (touch && !photo && !s.crashed && !s.keyboardFlying) {
+        // on-screen stick: aim = heading ± stick (see TOUCH_AIM)
+        if (Math.hypot(_fwd.x, _fwd.z) > 0.08) s.heading = Math.atan2(_fwd.x, _fwd.z);
+        const sx = virtualStick.active ? stickAxis(virtualStick.x) : 0;
+        const sy = virtualStick.active ? stickAxis(virtualStick.y) : 0;
+        const hdg = s.heading - sx * TOUCH_AIM.yaw;
+        const el = sy * (sy > 0 ? TOUCH_AIM.climb : TOUCH_AIM.dive);
+        _v.set(Math.sin(hdg) * Math.cos(el), Math.sin(el), Math.cos(hdg) * Math.cos(el));
+        s.aim.lerp(_v, 1 - Math.exp(-TOUCH_AIM.follow * dt)).normalize();
+      } else if (s.locked && !s.crashed && !s.keyboardFlying) {
         s.aim.applyAxisAngle(WORLD_UP, dYaw);
         _aimAxis.crossVectors(s.aim, WORLD_UP);
         if (_aimAxis.lengthSq() > 1e-6) s.aim.applyAxisAngle(_aimAxis.normalize(), dPitch);
@@ -443,7 +482,7 @@ function F16Scene({
       }
     }
 
-    const abHeld = (k.has("ShiftLeft") || k.has("ShiftRight")) && s.throttle > 0.5 && !s.crashed;
+    const abHeld = (k.has("ShiftLeft") || k.has("ShiftRight") || virtualThrottle.ab) && s.throttle > 0.5 && !s.crashed;
     if (!photo) s.ab += ((abHeld ? 1 : 0) - s.ab) * Math.min(1, dt * 6);
 
     // ---- jet transform + control surfaces ----
@@ -523,7 +562,10 @@ function F16Scene({
       cam.position.y += (Math.random() - 0.5) * sh;
     } else {
       // the camera looks along the aim; the jet chases it through the frame
-      _camM.lookAt(s.aim, _v.set(0, 0, 0), WORLD_UP);
+      // (touch: part way between nose and aim, the stick's offset is a turn, not a look)
+      if (touch) _v2.copy(_fwd).lerp(s.aim, TOUCH_AIM.camLead).normalize();
+      else _v2.copy(s.aim);
+      _camM.lookAt(_v2, _v.set(0, 0, 0), WORLD_UP);
       _dq.setFromRotationMatrix(_camM);
       if (!s.camInit) {
         s.camQ.copy(_dq);
@@ -556,7 +598,7 @@ function F16Scene({
     // ---- screen reticles: where the mouse aims (circle) and where the nose points (cross) ----
     {
       const r = reticle.current;
-      const showAim = started && !photo && !s.crashed && s.locked && !s.keyboardFlying;
+      const showAim = started && !photo && !s.crashed && !s.keyboardFlying && (touch ? virtualStick.active : s.locked);
       cam.updateMatrixWorld();
       placeReticle(r?.aim ?? null, cam, s.aim, showAim);
       placeReticle(r?.nose ?? null, cam, _fwd, started && !photo && !s.crashed && !s.cockpit);
@@ -632,9 +674,14 @@ function F16Scene({
 
     function step(h: number) {
       const stt = st.current;
-      if (k.has("KeyW")) stt.throttle = Math.min(1, stt.throttle + 0.45 * h);
-      if (k.has("KeyS")) stt.throttle = Math.max(0, stt.throttle - 0.55 * h);
-      const abNow = (k.has("ShiftLeft") || k.has("ShiftRight")) && stt.throttle > 0.5;
+      if (virtualThrottle.value !== null) {
+        // on-screen lever: the lever is the throttle
+        stt.throttle += (virtualThrottle.value - stt.throttle) * Math.min(1, 6 * h);
+      } else {
+        if (k.has("KeyW")) stt.throttle = Math.min(1, stt.throttle + 0.45 * h);
+        if (k.has("KeyS")) stt.throttle = Math.max(0, stt.throttle - 0.55 * h);
+      }
+      const abNow = (k.has("ShiftLeft") || k.has("ShiftRight") || virtualThrottle.ab) && stt.throttle > 0.5;
 
       // stick: arrow keys fly directly; otherwise the mouse-aim autopilot does
       let sx = 0;
@@ -831,8 +878,16 @@ export default function F16({ started }: { started: boolean }) {
     edge: false,
   });
   const photoMode = useMemo(() => readPhoto() !== null, []);
+  const touch = useIsTouch();
   const reticle = useRef<{ aim: HTMLDivElement | null; nose: HTMLDivElement | null }>({ aim: null, nose: null });
   const [locked, setLocked] = useState(false);
+  // touch: the how-to line only for the first seconds of play
+  const [hintGone, setHintGone] = useState(false);
+  useEffect(() => {
+    if (!started) return;
+    const t = setTimeout(() => setHintGone(true), 9000);
+    return () => clearTimeout(t);
+  }, [started]);
   useEffect(() => {
     const on = () => setLocked(!!document.pointerLockElement);
     document.addEventListener("pointerlockchange", on);
@@ -878,7 +933,8 @@ export default function F16({ started }: { started: boolean }) {
           sub={hud.afterburner ? "AFTERBURNER" : hud.stall ? "STALL!" : hud.g >= 4 ? `${hud.g.toFixed(1)} G` : undefined}
         />
         <HudStat label="İrtifa" value={`${hud.alt} m`} accent={hud.lowPass ? "#f97316" : "#6b6880"} sub={hud.lowPass ? "alçak uçuş bonusu" : undefined} />
-        <HudBar label="Gaz" value={hud.throttle} accent="#f97316" />
+        {/* touch: the throttle lever shows it */}
+        {!touch && <HudBar label="Gaz" value={hud.throttle} accent="#f97316" />}
       </div>
       {hud.bannerId > 0 && <HudBanner keyId={hud.bannerId} text={hud.bannerText} accent="#0ea5e9" />}
       <HudEdge show={started && !photoMode && !hud.crashed && hud.edge} text="Şehrin dışındasın, uçak geri dönüyor." />
@@ -887,14 +943,16 @@ export default function F16({ started }: { started: boolean }) {
           title="Çakıldın!"
           accent="#e11d48"
           lines={[`Skor: ${hud.score}`, "Otomatik yeniden başlatılıyor…"]}
-          hint="R: hemen başlat"
+          hint={touch ? "Sıfırla: hemen başlat" : "R: hemen başlat"}
           tone="danger"
         />
       )}
       {started && !photoMode && !hud.crashed && !locked && (
         <HudCenter text="Ekrana tıkla, fareyle nişan al: uçak beyaz halkaya döner. Esc ile bırak." />
       )}
-      {started && !photoMode && !hud.crashed && <HudHint text="C: kokpit · halkalar sokak aralarında · binalara dikkat" touchText="Ekranı sürükle: nişan al" />}
+      {started && !photoMode && !hud.crashed && (!touch || !hintGone) && (
+        <HudHint text="C: kokpit · halkalar sokak aralarında · binalara dikkat" touchText="Sol başparmakla yönlendir, bırakınca uçak düzelir · sağdaki kol gaz" />
+      )}
     </div>
   );
 }

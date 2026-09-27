@@ -47,6 +47,28 @@ const WALL_RUN = 15;
 const WEB_SPEED = 240;
 const ZIP_RANGE = 95;
 
+/*
+ * Touch: the right thumb is holding the web button, so the left stick does
+ * the steering in the air — it turns the view (and with it the next anchor
+ * and the swing's pull), instead of only nudging sideways.
+ */
+const TOUCH = {
+  /** view turn rate at full stick while airborne (rad/s) */
+  turnRate: 2.0,
+  deadzone: 0.12,
+  /** sideways pull while swinging (keyboard: 7) */
+  swingSteer: 12,
+  /** anchor search leans this far towards the stick (rad at full stick) */
+  anchorLean: 0.5,
+  /** stick pushed this far (0..1) on the ground = sprint */
+  autoSprint: 0.97,
+};
+
+function touchTurn(x: number) {
+  const m = Math.max(0, Math.abs(x) - TOUCH.deadzone) / (1 - TOUCH.deadzone);
+  return Math.sign(x) * Math.pow(m, 1.35);
+}
+
 // scratch objects (no per-frame allocation)
 const _d = new THREE.Vector3();
 const _n = new THREE.Vector3();
@@ -427,6 +449,8 @@ function SpidermanScene({ started, onHud }: { started: boolean; onHud: (h: Hud) 
     edge: false,
     /** analog input magnitude 0..1 (touch stick) */
     wishMag: 0,
+    /** performance.now() of the last view turn by the touch stick */
+    stickLookT: -1e9,
     /** render-only offset that absorbs position snaps (vaults, corners), decays to 0 */
     visOff: new THREE.Vector3(),
     /** smoothed offset from `pos` to the body's centre of mass */
@@ -459,6 +483,8 @@ function SpidermanScene({ started, onHud }: { started: boolean; onHud: (h: Hud) 
       diff = Math.atan2(Math.sin(diff), Math.cos(diff));
       heading += diff * 0.35;
     }
+    // touch: lean the search towards where the stick points
+    if (touch) heading -= touchTurn(s.inX) * TOUCH.anchorLean;
     const hx = -Math.sin(heading);
     const hz = -Math.cos(heading);
     // alternate sides for a rhythm (left hand, right hand, …)
@@ -984,7 +1010,8 @@ function SpidermanScene({ started, onHud }: { started: boolean; onHud: (h: Hud) 
     const wl = _wish.length();
     s.wishMag = Math.min(1, wl);
     if (wl > 1) _wish.divideScalar(wl);
-    const sprint = k.has("ShiftLeft") || k.has("ShiftRight");
+    // touch: stick all the way out on the ground = sprint (no second button needed)
+    const sprint = k.has("ShiftLeft") || k.has("ShiftRight") || (touch && s.onGround && virtualStick.active && s.wishMag >= TOUCH.autoSprint);
     s.wallCool -= h;
     s.zipCool -= h;
 
@@ -1058,7 +1085,7 @@ function SpidermanScene({ started, onHud }: { started: boolean; onHud: (h: Hud) 
             const tl = _tmp.length();
             if (tl > 0.5 && sp < 46) s.vel.addScaledVector(_tmp.divideScalar(tl), 7.5 * h);
             // steer: camera forward (+stick), projected on the tangent plane
-            _tmp2.copy(_fwd).multiplyScalar(6).addScaledVector(_wish, 7);
+            _tmp2.copy(_fwd).multiplyScalar(6).addScaledVector(_wish, touch ? TOUCH.swingSteer : 7);
             _tmp2.addScaledVector(_n, -_tmp2.dot(_n));
             s.vel.addScaledVector(_tmp2, h);
             // reel the rope in towards the safe length (lifts you off the street)
@@ -1172,10 +1199,15 @@ function SpidermanScene({ started, onHud }: { started: boolean; onHud: (h: Hud) 
 
     // ---- camera yaw: mouse / touch drag when active, otherwise auto-follow ----
     const hvel = Math.hypot(s.vel.x, s.vel.z);
-    const touchIdle = touch && now - lastLook.current > 1400;
+    // touch, airborne: the left stick turns the view (counts as a manual look)
+    const stickTurn =
+      touch && started && !s.onGround && !s.wall && !s.zip && virtualStick.active ? touchTurn(virtualStick.x) : 0;
+    if (stickTurn !== 0) s.stickLookT = now;
+    const touchIdle = touch && now - Math.max(lastLook.current, s.stickLookT) > 1400;
     const manual = lockedRef.current && !touchIdle;
     if (lockedRef.current) {
       if (!s.wasLocked) s.yawOffset = s.camYaw - yaw.current;
+      s.yawOffset -= stickTurn * TOUCH.turnRate * dt;
       s.camYaw = yaw.current + s.yawOffset;
     }
     if (!manual) {
