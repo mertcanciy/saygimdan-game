@@ -4,7 +4,7 @@
 // shadows, image-based lighting (so glass actually reflects the sky), fog,
 // and the post-processing stack (AO, bloom, filmic tone mapping).
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import * as THREE from "three";
 import { useFrame, useThree } from "@react-three/fiber";
 import { Environment, Sky, Stars, Lightformer, PerformanceMonitor } from "@react-three/drei";
@@ -304,9 +304,42 @@ const DPR_STEPS = [1.5, 1.25, 1, 0.85];
  */
 const PIXEL_BUDGET = 4.2e6;
 
-function dprFor(level: number) {
-  const budget = Math.max(1, Math.sqrt(PIXEL_BUDGET / (window.innerWidth * window.innerHeight)));
+function dprFor(level: number, cssPixels: number) {
+  const budget = Math.max(1, Math.sqrt(PIXEL_BUDGET / Math.max(1, cssPixels)));
   return Math.min(window.devicePixelRatio, DPR_STEPS[level], budget);
+}
+
+const startLevel = () => (isTouchDevice() ? 2 : 0);
+
+/*
+ * The render DPR lives here and reaches the renderer through the Canvas `dpr`
+ * prop. It can't be set with `useThree().setDpr` alone: <Canvas> re-applies its
+ * `dpr` prop on every render (the games re-render with each HUD update), which
+ * silently put every phone back at 1.5 and undid every quality step.
+ */
+let canvasDpr: number | null = null;
+const dprListeners = new Set<() => void>();
+
+function setCanvasDpr(v: number) {
+  if (v === canvasDpr) return;
+  canvasDpr = v;
+  dprListeners.forEach((l) => l());
+}
+
+function subscribeDpr(l: () => void) {
+  dprListeners.add(l);
+  return () => {
+    dprListeners.delete(l);
+  };
+}
+
+function readDpr() {
+  return (canvasDpr ??= dprFor(startLevel(), window.innerWidth * window.innerHeight));
+}
+
+/** Pass as `<Canvas dpr={…}>` in every game (WorldEffects adapts it). */
+export function useCanvasDpr(): number {
+  return useSyncExternalStore(subscribeDpr, readDpr, () => 1);
 }
 
 /**
@@ -325,11 +358,27 @@ function opaqueOnlyAO(pass: { autoDetectTransparency: boolean; configuration: { 
 
 const _hidden: THREE.Object3D[] = [];
 
+/** Run `fn` with every hidden object (except lights) temporarily visible. */
+function withHiddenShown<T>(scene: THREE.Scene, fn: () => T): T {
+  scene.traverse((o) => {
+    // lights stay as they are: another light count means other shaders
+    if (o.visible || (o as THREE.Light).isLight) return;
+    o.visible = true;
+    _hidden.push(o);
+  });
+  try {
+    return fn();
+  } finally {
+    for (const o of _hidden) o.visible = false;
+    _hidden.length = 0;
+  }
+}
+
 /**
  * Shader + GPU pipeline warm-up for everything in the scene, including objects
  * that only appear later (afterburner glow, cockpit, explosion, sparks…).
  * Otherwise each of those compiles its shader the first time it shows up —
- * a 50–100 ms freeze mid-game. Runs while the start sheet is still up.
+ * a 50–100 ms freeze mid-game. Runs only while the start sheet is up.
  *
  * 1. compile every material for the composer's HDR target (the scene is drawn
  *    into that, linear and un-tonemapped — a different shader variant than the
@@ -337,24 +386,32 @@ const _hidden: THREE.Object3D[] = [];
  * 2. then draw the scene into that target a couple of times with hidden
  *    objects made visible: some GPUs (Metal) only build the pipeline on the
  *    first real draw. The composer clears and redraws the target right after.
+ *
+ * Once the game has started it does nothing: the extra draws would themselves
+ * be the kind of mid-game hitch this is meant to avoid.
  */
-function useWarmUp(composer: React.RefObject<PPEffectComposer | null>) {
+function useWarmUp(composer: React.RefObject<PPEffectComposer | null>, started: boolean) {
   const get = useThree((s) => s.get);
   const prime = useRef(0);
+  const startedRef = useRef(started);
+  useEffect(() => {
+    startedRef.current = started;
+    if (started) prime.current = 0;
+  }, [started]);
   useEffect(() => {
     let alive = true;
     const run = () => {
       const c = composer.current;
-      if (!alive || !c) return;
+      if (!alive || !c || startedRef.current) return;
       const { gl, scene, camera } = get();
       const prev = gl.getRenderTarget();
       gl.setRenderTarget(c.inputBuffer);
-      const ready = gl.compileAsync(scene, camera);
+      const ready = withHiddenShown(scene, () => gl.compileAsync(scene, camera));
       gl.setRenderTarget(prev);
-      ready.then(() => alive && (prime.current = 2)).catch(() => {});
+      ready.then(() => alive && !startedRef.current && (prime.current = 2)).catch(() => {});
     };
     // once the environment map exists, and again after late loads (models)
-    const timers = [setTimeout(run, 700), setTimeout(run, 2500)];
+    const timers = [setTimeout(run, 500), setTimeout(run, 2500)];
     return () => {
       alive = false;
       timers.forEach(clearTimeout);
@@ -363,37 +420,30 @@ function useWarmUp(composer: React.RefObject<PPEffectComposer | null>) {
   // after the game logic (priority 0), before the composer (priority 1)
   useFrame(({ gl, scene, camera }) => {
     const c = composer.current;
-    if (prime.current <= 0 || !c) return;
+    if (prime.current <= 0 || !c || startedRef.current) return;
     prime.current--;
-    scene.traverse((o) => {
-      // lights stay as they are: another light count means other shaders
-      if (o.visible || (o as THREE.Light).isLight) return;
-      o.visible = true;
-      _hidden.push(o);
-    });
     const prev = gl.getRenderTarget();
     gl.setRenderTarget(c.inputBuffer);
     gl.clear();
-    gl.render(scene, camera);
+    withHiddenShown(scene, () => gl.render(scene, camera));
     gl.setRenderTarget(prev);
-    for (const o of _hidden) o.visible = false;
-    _hidden.length = 0;
   }, 0.9);
 }
 
-export function WorldEffects({ preset, ao = true }: { preset: WorldPreset; ao?: boolean }) {
+export function WorldEffects({ preset, ao = true, started = false }: { preset: WorldPreset; ao?: boolean; started?: boolean }) {
   const p = PRESETS[preset];
   const composer = useRef<PPEffectComposer>(null);
-  useWarmUp(composer);
-  const setDpr = useThree((s) => s.setDpr);
-  const [start] = useState(() => (isTouchDevice() ? 2 : 0));
-  const [level, setLevel] = useState(start);
+  useWarmUp(composer, started);
+  const cssPixels = useThree((s) => s.size.width * s.size.height);
+  const [level, setLevel] = useState(startLevel);
   const [aoOn, setAoOn] = useState(() => ao && !isTouchDevice());
   const [monitor, setMonitor] = useState(false);
   const drops = useRef(0);
+  // re-evaluated on resize / fullscreen too (the budget depends on the canvas
+  // size); R3F only reallocates when the resulting DPR actually changes
   useEffect(() => {
-    setDpr(dprFor(level));
-  }, [level, setDpr]);
+    setCanvasDpr(dprFor(level, cssPixels));
+  }, [level, cssPixels]);
   useEffect(() => {
     // shader compilation and asset uploads make the first seconds look slow
     const t = setTimeout(() => setMonitor(true), 6000);
