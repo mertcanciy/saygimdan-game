@@ -159,22 +159,22 @@ export const TOUCH_HELP: Record<GameSlug, string[]> = {
   spiderman: [
     "Sol başparmak: koş; binaya doğru it: tırman",
     "Ağ: basılı tut sallan, bırak uç",
-    "Havadayken sol başparmakla sağa sola dön; Ağ basılıyken kaydırırsan kamera döner",
+    "Havadayken sol başparmağı yana it: dönersin; Ağ basılıyken kaydırırsan kamera döner",
     "Zip: baktığın yere ağ fırlat, hızla çekil",
     "Koş: yerde depar, duvarda koşarak tırman, havada dalış",
   ],
   drift: [
-    "Direksiyonu tut ve çevir",
+    "Direksiyona dokun, parmağını sağa sola kaydır",
     "Sağda gaz ve fren; parmağını kaldırmadan pedaldan pedala kaydır",
     "Hızlıyken el frenine dokun: drift. Gazı bırak: araç toparlar",
   ],
   f16: [
-    "Sol başparmak: uçak o yöne döner, bırakınca düzlüğe çıkar",
+    "Sol başparmak: yana it uçak yatıp döner, yukarı / aşağı it tırmanır / alçalır; bırakınca düzelir",
     "Sağdaki kol gaz; en üste itersen afterburner",
     "Tonoz: yana takla",
   ],
   traffic: [
-    "Direksiyonu tut ve çevir; ortasına bas: korna",
+    "Direksiyona dokun, parmağını sağa sola kaydır; ortasına bas: korna",
     "Sağda gaz ve fren; gazdan nitroya parmağını kaydırabilirsin",
     "Selektör yap: öndeki araç yol verir",
   ],

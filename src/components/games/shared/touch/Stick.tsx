@@ -1,16 +1,19 @@
 "use client";
 
-// Floating analog stick. A touch that starts anywhere in the left zone spawns
-// the base under the thumb (no "missed the stick"); dragging moves the knob
-// and the base follows if the thumb runs past the rim. Publishes the analog
-// vector in `virtualStick` and, optionally, W/A/S/D past a deadzone for games
-// that only read keys.
+// Floating analog stick. The first touch anywhere in the left zone is the
+// stick's centre, and it stays the centre for the whole touch: the output is
+// simply "how far the thumb is from where it landed" (clamped at the rim), so
+// landing reads zero and coming back to that spot reads zero again. Publishes
+// the analog vector in `virtualStick` and, optionally, W/A/S/D past a deadzone
+// for games that only read keys.
 
 import { useEffect, useRef, useState } from "react";
 import { pressVirtual, releaseVirtual, virtualStick } from "../input";
 import { EDGE_BOTTOM, EDGE_LEFT, NO_TAP_HIGHLIGHT, ZONE_TOP, buzz } from "./kit";
 
 const KEY_DZ = 0.3;
+/** full deflection, as a share of the stick's drawn size */
+const RADIUS = 0.4;
 
 export default function Stick({ keys = true, label = "Hareket: sol başparmağını sürükle" }: { keys?: boolean; label?: string }) {
   const zone = useRef<HTMLDivElement>(null);
@@ -18,8 +21,9 @@ export default function Stick({ keys = true, label = "Hareket: sol başparmağı
   const baseEl = useRef<HTMLDivElement>(null);
   const knobEl = useRef<HTMLDivElement>(null);
   const pointer = useRef<number | null>(null);
-  const center = useRef({ x: 0, y: 0 });
-  const radius = useRef(50);
+  /** where the thumb landed (client px) */
+  const origin = useRef({ x: 0, y: 0 });
+  const radius = useRef(56);
   const [active, setActive] = useState(false);
 
   const setKeys = (x: number, y: number) => {
@@ -31,32 +35,11 @@ export default function Stick({ keys = true, label = "Hareket: sol başparmağı
     set("KeyD", x > KEY_DZ);
   };
 
-  const place = () => {
-    const b = baseEl.current;
-    if (b) b.style.transform = `translate3d(${center.current.x}px, ${center.current.y}px, 0) translate(-50%, -50%)`;
-  };
-
   const update = (clientX: number, clientY: number) => {
-    const z = zone.current;
-    if (!z) return;
-    const r = z.getBoundingClientRect();
-    const px = clientX - r.left;
-    const py = clientY - r.top;
     const R = radius.current;
-    let dx = px - center.current.x;
-    let dy = py - center.current.y;
-    let d = Math.hypot(dx, dy);
-    // thumb ran past the rim: drag the base along so the stick never "sticks" at the edge
-    const follow = R * 1.15;
-    if (d > follow) {
-      const k = (d - follow) / d;
-      center.current.x += dx * k;
-      center.current.y += dy * k;
-      place();
-      dx = px - center.current.x;
-      dy = py - center.current.y;
-      d = Math.hypot(dx, dy);
-    }
+    const dx = clientX - origin.current.x;
+    const dy = clientY - origin.current.y;
+    const d = Math.hypot(dx, dy);
     const m = Math.min(1, d / R);
     const nx = d > 0 ? (dx / d) * m : 0;
     const ny = d > 0 ? (-dy / d) * m : 0;
@@ -95,16 +78,13 @@ export default function Stick({ keys = true, label = "Hareket: sol başparmağı
         e.stopPropagation();
         e.currentTarget.setPointerCapture(e.pointerId);
         pointer.current = e.pointerId;
-        const z = e.currentTarget.getBoundingClientRect();
         const size = rest.current?.getBoundingClientRect().width || 140;
-        radius.current = size * 0.36;
-        // spawn under the thumb, but keep the whole base on screen
-        const half = size / 2 + 4;
-        center.current = {
-          x: Math.max(half, Math.min(z.width - half * 0.6, e.clientX - z.left)),
-          y: Math.max(half * 0.6, Math.min(z.height - half, e.clientY - z.top)),
-        };
-        place();
+        radius.current = size * RADIUS;
+        origin.current = { x: e.clientX, y: e.clientY };
+        // the base is drawn under the thumb (it may hang off the screen edge; the centre never moves)
+        const z = e.currentTarget.getBoundingClientRect();
+        const b = baseEl.current;
+        if (b) b.style.transform = `translate3d(${e.clientX - z.left}px, ${e.clientY - z.top}px, 0) translate(-50%, -50%)`;
         setActive(true);
         buzz();
         update(e.clientX, e.clientY);

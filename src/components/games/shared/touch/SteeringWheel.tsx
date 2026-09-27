@@ -1,10 +1,11 @@
 "use client";
 
-// On-screen steering wheel for the car games. Grab it anywhere (rim or the
-// empty space around it) and turn: on the rim the wheel follows the thumb's
-// angle like a real one; near the hub or away from the wheel a sideways slide
-// turns it instead (angles get twitchy close to the centre). Springs back to
-// straight on release. Publishes an analog value in `virtualSteer`.
+// On-screen steering wheel for the car games. Put a thumb down anywhere in the
+// left zone (on the wheel or beside it) and slide sideways: the steering is
+// how far the thumb has moved left / right from where it landed, the same
+// wherever you grabbed, and a quick ~¾-wheel flick reaches full lock. The
+// wheel turns with it (same angle as the car's own wheel in Makas) and
+// springs back to straight on release. Publishes `virtualSteer`.
 // The hub is a separate button (the horn), styled as a record label.
 
 import { useEffect, useRef, useState } from "react";
@@ -12,36 +13,36 @@ import { Megaphone } from "lucide-react";
 import { virtualSteer } from "../input";
 import { EDGE_BOTTOM, EDGE_LEFT, NO_TAP_HIGHLIGHT, ZONE_TOP, buzz, usePress } from "./kit";
 
-/** wheel rotation for full lock (rad): ~100°, a comfortable thumb arc */
-const MAX_ROT = 1.75;
-/** full-lock travel for a sideways slide, in wheel radii */
-const SLIDE_R = 1.15;
+/** drawn rotation at full lock (rad): matches the Makas cockpit wheel (cars/Cockpit.tsx) */
+export const WHEEL_MAX_ROT = 1.6;
+/** sideways travel for full lock, in wheel radii (~75 px on a phone) */
+const TRAVEL_R = 0.95;
+/** travel (share of full) that reads as straight: a resting thumb doesn't wobble the car */
 const DEADZONE = 0.04;
-
-function wrap(a: number) {
-  return Math.atan2(Math.sin(a), Math.cos(a));
-}
 
 export default function SteeringWheel({ horn }: { horn?: string }) {
   const wheel = useRef<HTMLDivElement>(null);
-  const g = useRef({ id: -1, cx: 0, cy: 0, r: 1, lastA: 0, lastX: 0, rot: 0 });
+  const g = useRef({ id: -1, x0: 0, travel: 75, value: 0 });
   const [active, setActive] = useState(false);
 
-  const publish = () => {
+  const publish = (clientX: number) => {
     const s = g.current;
-    const u = s.rot / MAX_ROT;
+    const u = Math.max(-1, Math.min(1, (clientX - s.x0) / s.travel));
     const m = Math.max(0, Math.abs(u) - DEADZONE) / (1 - DEADZONE);
-    virtualSteer.value = Math.sign(u) * m;
+    const was = Math.abs(s.value) >= 1;
+    s.value = Math.sign(u) * m;
+    if (!was && Math.abs(s.value) >= 1) buzz(6); // full lock
+    virtualSteer.value = s.value;
     virtualSteer.active = true;
     const w = wheel.current;
-    if (w) w.style.transform = `rotate(${s.rot}rad)`;
+    if (w) w.style.transform = `rotate(${s.value * WHEEL_MAX_ROT}rad)`;
   };
 
   const end = (e?: React.PointerEvent) => {
     const s = g.current;
     if (e && e.pointerId !== s.id) return;
     s.id = -1;
-    s.rot = 0;
+    s.value = 0;
     virtualSteer.value = 0;
     virtualSteer.active = false;
     setActive(false);
@@ -57,7 +58,7 @@ export default function SteeringWheel({ horn }: { horn?: string }) {
   return (
     <div
       role="application"
-      aria-label="Direksiyon: tut ve çevir"
+      aria-label="Direksiyon: dokun, sağa sola kaydır"
       className={`pointer-events-auto absolute bottom-0 left-0 w-[46%] touch-none select-none ${NO_TAP_HIGHLIGHT}`}
       style={{ top: ZONE_TOP }}
       onPointerDown={(e) => {
@@ -65,33 +66,16 @@ export default function SteeringWheel({ horn }: { horn?: string }) {
         if (s.id !== -1 || !wheel.current) return;
         e.preventDefault();
         e.currentTarget.setPointerCapture(e.pointerId);
-        const r = wheel.current.getBoundingClientRect();
         s.id = e.pointerId;
-        s.cx = r.left + r.width / 2;
-        s.cy = r.top + r.height / 2;
-        s.r = r.width / 2;
-        s.lastA = Math.atan2(e.clientY - s.cy, e.clientX - s.cx);
-        s.lastX = e.clientX;
+        s.x0 = e.clientX;
+        s.travel = (wheel.current.getBoundingClientRect().width / 2) * TRAVEL_R;
         wheel.current.style.transition = "none";
         setActive(true);
         buzz();
-        publish();
+        publish(e.clientX);
       }}
       onPointerMove={(e) => {
-        const s = g.current;
-        if (e.pointerId !== s.id) return;
-        const dx = e.clientX - s.cx;
-        const dy = e.clientY - s.cy;
-        const d = Math.hypot(dx, dy);
-        const a = Math.atan2(dy, dx);
-        const onRim = d > s.r * 0.3 && d < s.r * 1.45;
-        const delta = onRim ? wrap(a - s.lastA) : ((e.clientX - s.lastX) / (s.r * SLIDE_R)) * MAX_ROT;
-        s.lastA = a;
-        s.lastX = e.clientX;
-        const was = Math.abs(s.rot) >= MAX_ROT;
-        s.rot = Math.max(-MAX_ROT, Math.min(MAX_ROT, s.rot + delta));
-        if (!was && Math.abs(s.rot) >= MAX_ROT) buzz(6); // full lock
-        publish();
+        if (e.pointerId === g.current.id) publish(e.clientX);
       }}
       onPointerUp={end}
       onPointerCancel={end}

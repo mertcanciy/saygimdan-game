@@ -203,7 +203,10 @@ function TrafficScene({ started, onHud }: { started: boolean; onHud: (h: Hud) =>
 
   // dev-only handle for headless tests
   useEffect(() => {
-    if (process.env.NODE_ENV !== "production") (window as unknown as { __traffic?: unknown }).__traffic = st.current;
+    if (process.env.NODE_ENV !== "production") {
+      (window as unknown as { __traffic?: unknown; __trafficSteer?: unknown }).__traffic = st.current;
+      (window as unknown as { __trafficSteer?: unknown }).__trafficSteer = steerVis;
+    }
   }, []);
 
   const banner = (text: string) => {
@@ -220,6 +223,10 @@ function TrafficScene({ started, onHud }: { started: boolean; onHud: (h: Hud) =>
     const dt = Math.min(rawDt, 1 / 30);
     const k = keys.current;
     s.t += dt;
+    // steering input: on-screen wheel (analog) or keys (full left / right)
+    const inX = virtualSteer.active
+      ? virtualSteer.value
+      : (k.has("KeyD") || k.has("ArrowRight") ? 1 : 0) - (k.has("KeyA") || k.has("ArrowLeft") ? 1 : 0);
 
     if (started) {
       s.acc += dt;
@@ -281,7 +288,8 @@ function TrafficScene({ started, onHud }: { started: boolean; onHud: (h: Hud) =>
 
     playerZ.current = s.pz;
     focus.current.set(s.px, 0, s.pz);
-    steerVis.current += (s.vx / 9 - steerVis.current) * Math.min(1, 10 * dt);
+    // the car's wheel shows the driver's hands (the input), like the on-screen wheel; the car follows
+    steerVis.current += ((started ? inX : 0) - steerVis.current) * Math.min(1, 25 * dt);
     kmhVis.current = s.speed * 3.6;
     // fake 6-speed gearbox for the rev counter
     const gearTop = [0, 14, 24, 34, 44, 54, 70];
@@ -535,10 +543,6 @@ function TrafficScene({ started, onHud }: { started: boolean; onHud: (h: Hud) =>
       else stt.speed = Math.max(0, stt.speed - 3 * h);
       if (stt.crashT > 0.8) stt.speed = Math.min(stt.speed, 14);
 
-      // on-screen wheel: analog; keyboard: full left / right
-      const inX = virtualSteer.active
-        ? virtualSteer.value
-        : (k.has("KeyD") || k.has("ArrowRight") ? 1 : 0) - (k.has("KeyA") || k.has("ArrowLeft") ? 1 : 0);
       const agility = 7 + Math.min(4, stt.speed * 0.08);
       stt.vx += (inX * agility - stt.vx) * Math.min(1, 9 * h);
       stt.px += stt.vx * h;

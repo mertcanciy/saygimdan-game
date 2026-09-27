@@ -71,27 +71,30 @@ const AIM = {
 };
 
 /*
- * Touch (on-screen stick): the stick says where to fly relative to the jet's
- * heading — full right = aim this far right of the nose, full up = climb at
- * this angle — and the same autopilot flies there. Centred (or released) =
- * straight and level, so a thumb slipping off never sends the jet tumbling.
+ * Touch (on-screen stick), arcade style: stick sideways = a bank angle (the
+ * jet turns because it's banked), stick up / down = a climb / dive angle, and
+ * the jet holds them. Centred (or released) = wings level, level flight, so a
+ * thumb slipping off never sends the jet tumbling. The expo curve keeps small
+ * thumb movements small.
  */
-const TOUCH_AIM = {
-  yaw: THREE.MathUtils.degToRad(42),
-  climb: THREE.MathUtils.degToRad(38),
-  dive: THREE.MathUtils.degToRad(30),
-  deadzone: 0.08,
+const TOUCH_FLY = {
+  maxBank: THREE.MathUtils.degToRad(62),
+  climb: THREE.MathUtils.degToRad(28),
+  dive: THREE.MathUtils.degToRad(22),
+  deadzone: 0.1,
   /** 1 = linear, 2 = square: fine control near the centre */
-  expo: 1.5,
-  /** how fast the aim follows the stick (1/s) */
-  follow: 7,
-  /** the chase camera looks this far from the nose towards the aim (0..1) */
-  camLead: 0.45,
+  expo: 1.6,
+  /** bank-angle hold: stick per radian of error / per rad/s of roll rate */
+  rollGain: 2.4,
+  rollDamp: 0.22,
+  /** climb-angle hold (more pull when banked, so a turn keeps its altitude) */
+  pitchGain: 2.2,
+  pitchDamp: 0.35,
 };
 
 function stickAxis(v: number) {
-  const m = Math.max(0, Math.abs(v) - TOUCH_AIM.deadzone) / (1 - TOUCH_AIM.deadzone);
-  return Math.sign(v) * Math.pow(m, TOUCH_AIM.expo);
+  const m = Math.max(0, Math.abs(v) - TOUCH_FLY.deadzone) / (1 - TOUCH_FLY.deadzone);
+  return Math.sign(v) * Math.pow(m, TOUCH_FLY.expo);
 }
 
 /** Put a DOM reticle where `dir` (seen from the camera) lands on screen. */
@@ -303,8 +306,9 @@ function F16Scene({
     keyboardFlying: false,
     locked: false,
     yawAuto: 0,
-    /** last well-defined heading (touch aim, for a nose pointing straight up/down) */
-    heading: Math.PI / 2,
+    /** touch flight: last bank / pitch (for their rates) */
+    lastBank: 0,
+    lastPitch: 0,
   });
 
   const banner = (text: string) => {
@@ -414,15 +418,9 @@ function F16Scene({
       s.lastLookPitch = lookPitch.current;
       s.locked = lockedRef.current;
       _fwd.set(0, 0, 1).applyQuaternion(s.q);
-      if (touch && !photo && !s.crashed && !s.keyboardFlying) {
-        // on-screen stick: aim = heading ± stick (see TOUCH_AIM)
-        if (Math.hypot(_fwd.x, _fwd.z) > 0.08) s.heading = Math.atan2(_fwd.x, _fwd.z);
-        const sx = virtualStick.active ? stickAxis(virtualStick.x) : 0;
-        const sy = virtualStick.active ? stickAxis(virtualStick.y) : 0;
-        const hdg = s.heading - sx * TOUCH_AIM.yaw;
-        const el = sy * (sy > 0 ? TOUCH_AIM.climb : TOUCH_AIM.dive);
-        _v.set(Math.sin(hdg) * Math.cos(el), Math.sin(el), Math.cos(hdg) * Math.cos(el));
-        s.aim.lerp(_v, 1 - Math.exp(-TOUCH_AIM.follow * dt)).normalize();
+      if (touch && !photo) {
+        // on-screen stick flies the jet directly (see TOUCH_FLY in step); no aim point
+        s.aim.copy(_fwd);
       } else if (s.locked && !s.crashed && !s.keyboardFlying) {
         s.aim.applyAxisAngle(WORLD_UP, dYaw);
         _aimAxis.crossVectors(s.aim, WORLD_UP);
@@ -562,10 +560,8 @@ function F16Scene({
       cam.position.y += (Math.random() - 0.5) * sh;
     } else {
       // the camera looks along the aim; the jet chases it through the frame
-      // (touch: part way between nose and aim, the stick's offset is a turn, not a look)
-      if (touch) _v2.copy(_fwd).lerp(s.aim, TOUCH_AIM.camLead).normalize();
-      else _v2.copy(s.aim);
-      _camM.lookAt(_v2, _v.set(0, 0, 0), WORLD_UP);
+      // (touch: the aim is the nose, so it simply follows behind)
+      _camM.lookAt(s.aim, _v.set(0, 0, 0), WORLD_UP);
       _dq.setFromRotationMatrix(_camM);
       if (!s.camInit) {
         s.camQ.copy(_dq);
@@ -598,7 +594,7 @@ function F16Scene({
     // ---- screen reticles: where the mouse aims (circle) and where the nose points (cross) ----
     {
       const r = reticle.current;
-      const showAim = started && !photo && !s.crashed && !s.keyboardFlying && (touch ? virtualStick.active : s.locked);
+      const showAim = started && !photo && !s.crashed && !s.keyboardFlying && !touch && s.locked;
       cam.updateMatrixWorld();
       placeReticle(r?.aim ?? null, cam, s.aim, showAim);
       placeReticle(r?.nose ?? null, cam, _fwd, started && !photo && !s.crashed && !s.cockpit);
@@ -691,7 +687,26 @@ function F16Scene({
       if (k.has("ArrowUp")) sy += 1;
       if (k.has("ArrowDown")) sy -= 1;
       stt.keyboardFlying = sx !== 0 || sy !== 0;
-      if (!stt.keyboardFlying) {
+      if (touch && !stt.keyboardFlying) {
+        // on-screen stick: hold a bank angle and a climb angle (TOUCH_FLY)
+        _fwd.set(0, 0, 1).applyQuaternion(stt.q);
+        _up.set(0, 1, 0).applyQuaternion(stt.q);
+        _right.set(-1, 0, 0).applyQuaternion(stt.q);
+        const bank = Math.atan2(-_right.y, _up.y); // + = rolled right
+        const pitch = Math.asin(THREE.MathUtils.clamp(_fwd.y, -1, 1));
+        const tx = virtualStick.active ? stickAxis(virtualStick.x) : 0;
+        const ty = virtualStick.active ? stickAxis(virtualStick.y) : 0;
+        const bankRate = (bank - stt.lastBank) / h;
+        const pitchRate = (pitch - stt.lastPitch) / h;
+        stt.lastBank = bank;
+        stt.lastPitch = pitch;
+        let bankErr = tx * TOUCH_FLY.maxBank - bank;
+        bankErr = Math.atan2(Math.sin(bankErr), Math.cos(bankErr));
+        sx = bankErr * TOUCH_FLY.rollGain - THREE.MathUtils.clamp(bankRate, -6, 6) * TOUCH_FLY.rollDamp;
+        const pitchErr = ty * (ty > 0 ? TOUCH_FLY.climb : TOUCH_FLY.dive) - pitch;
+        sy = (pitchErr * TOUCH_FLY.pitchGain - THREE.MathUtils.clamp(pitchRate, -4, 4) * TOUCH_FLY.pitchDamp) / Math.max(0.4, Math.cos(bank));
+        stt.yawAuto = 0;
+      } else if (!stt.keyboardFlying) {
         _fwd.set(0, 0, 1).applyQuaternion(stt.q);
         _up.set(0, 1, 0).applyQuaternion(stt.q);
         _right.set(-1, 0, 0).applyQuaternion(stt.q);
@@ -951,7 +966,7 @@ export default function F16({ started }: { started: boolean }) {
         <HudCenter text="Ekrana tıkla, fareyle nişan al: uçak beyaz halkaya döner. Esc ile bırak." />
       )}
       {started && !photoMode && !hud.crashed && (!touch || !hintGone) && (
-        <HudHint text="C: kokpit · halkalar sokak aralarında · binalara dikkat" touchText="Sol başparmakla yönlendir, bırakınca uçak düzelir · sağdaki kol gaz" />
+        <HudHint text="C: kokpit · halkalar sokak aralarında · binalara dikkat" touchText="Sol başparmak: yana it dön, yukarı it tırman · bırakınca düzelir · sağdaki kol gaz" />
       )}
     </div>
   );

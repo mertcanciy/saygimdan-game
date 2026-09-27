@@ -35,6 +35,8 @@ const CAR_R = 1.0;
 const CORNER_MIN = 0.4;
 const CORNER_ZONE = 40;
 const LAP_BONUS = 1000;
+/** on-screen wheel response: steer = slide^WHEEL_EXPO */
+const WHEEL_EXPO = 1.6;
 
 const _tmp = new THREE.Vector3();
 const _tmp2 = new THREE.Vector3();
@@ -547,9 +549,11 @@ function DriftScene({ started, onHud }: { started: boolean; onHud: (h: Hud) => v
       const handbrake = k.has("Space");
       const gas = k.has("KeyW") || k.has("ArrowUp");
       const brake = k.has("KeyS") || k.has("ArrowDown");
-      // on-screen wheel: analog (right +, the model wants left +); keyboard: full lock
+      // on-screen wheel: analog with an expo curve (small slides = fine corrections, a full
+      // slide still = full lock); right +, the model wants left +. Keyboard: full lock
+      const sv = virtualSteer.value;
       const steerIn = virtualSteer.active
-        ? -virtualSteer.value
+        ? -Math.sign(sv) * Math.pow(Math.abs(sv), WHEEL_EXPO)
         : (k.has("KeyA") || k.has("ArrowLeft") ? 1 : 0) - (k.has("KeyD") || k.has("ArrowRight") ? 1 : 0);
 
       // ---- tyre model (see cars/driftPhysics.ts) ----
