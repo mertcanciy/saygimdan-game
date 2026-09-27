@@ -11,6 +11,7 @@ import { GAME_COMPONENTS } from "@/components/games";
 import TouchControls, { TOUCH_HELP } from "@/components/games/shared/TouchControls";
 import { useIsPortrait, useIsTouch } from "@/components/games/shared/useDevice";
 import { measureDisplayHz } from "@/components/games/shared/input";
+import { setSceneHold } from "@/components/games/shared/World";
 import { recordingRequested, shareTouchRecording, startTouchRecording, touchRecordingSize } from "@/components/games/shared/touchRecorder";
 
 const noop = () => () => {};
@@ -52,10 +53,17 @@ export default function PlayShell({ game }: { game: GameInfo }) {
   const [showControls, setShowControls] = useState(false);
   const [portraitOk, setPortraitOk] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
+  const hold = phase === "paused" || (touch && portrait && !portraitOk);
 
   useEffect(() => {
     if (hydrated && !user) router.replace("/#giris");
   }, [hydrated, user, router]);
+
+  useEffect(() => {
+    setSceneHold(hold);
+  }, [hold]);
+
+  useEffect(() => () => setSceneHold(false), []);
 
   // before the 3D scene loads, while frames are still cheap (see World.tsx adaptive quality)
   useEffect(() => measureDisplayHz(), []);

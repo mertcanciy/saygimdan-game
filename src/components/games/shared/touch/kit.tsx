@@ -300,10 +300,14 @@ export function Cluster({
 /** Press/release for a standalone button (top chips, the horn on the wheel). */
 export function usePress(btn: Btn) {
   const [down, setDown] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tapRelease = useRef<{ timer: ReturnType<typeof setTimeout> | null; raf1: number | null; raf2: number | null }>({
+    timer: null,
+    raf1: null,
+    raf2: null,
+  });
   useEffect(
     () => () => {
-      if (timer.current) clearTimeout(timer.current);
+      cancelTapRelease(tapRelease.current);
       releaseVirtual(btn.code);
     },
     [btn.code]
@@ -316,9 +320,7 @@ export function usePress(btn: Btn) {
     buzz();
     pressVirtual(btn.code);
     if (btn.tap) {
-      // tap buttons: hold the key for a few frames so edge detection sees it
-      if (timer.current) clearTimeout(timer.current);
-      timer.current = setTimeout(() => releaseVirtual(btn.code), 90);
+      scheduleTapRelease(btn.code, tapRelease.current);
     }
   };
   const release = () => {
@@ -335,6 +337,32 @@ export function usePress(btn: Btn) {
       onContextMenu: (e: React.MouseEvent) => e.preventDefault(),
     },
   };
+}
+
+function cancelTapRelease(pending: { timer: ReturnType<typeof setTimeout> | null; raf1: number | null; raf2: number | null }) {
+  if (pending.timer) clearTimeout(pending.timer);
+  if (pending.raf1 !== null) cancelAnimationFrame(pending.raf1);
+  if (pending.raf2 !== null) cancelAnimationFrame(pending.raf2);
+  pending.timer = null;
+  pending.raf1 = null;
+  pending.raf2 = null;
+}
+
+function scheduleTapRelease(
+  code: string,
+  pending: { timer: ReturnType<typeof setTimeout> | null; raf1: number | null; raf2: number | null }
+) {
+  cancelTapRelease(pending);
+  pending.timer = setTimeout(() => {
+    pending.timer = null;
+    pending.raf1 = requestAnimationFrame(() => {
+      pending.raf1 = null;
+      pending.raf2 = requestAnimationFrame(() => {
+        pending.raf2 = null;
+        releaseVirtual(code);
+      });
+    });
+  }, 90);
 }
 
 /** Small chip along the top edge (camera, reset…). */

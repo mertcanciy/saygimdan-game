@@ -8,7 +8,7 @@ import { useKeys, makeEdge } from "./shared/useKeys";
 import { virtualSteer } from "./shared/input";
 import { useIsTouch } from "./shared/useDevice";
 import Particles, { type ParticleHandle } from "./shared/Particles";
-import { WorldAtmosphere, WorldEffects, CANVAS_GL, useCanvasDpr } from "./shared/World";
+import { WorldAtmosphere, WorldEffects, CANVAS_GL, CANVAS_RESIZE, useCanvasDpr } from "./shared/World";
 import { HudStat, HudBanner, HudModal, HudBar, HudCenter } from "./shared/GameHud";
 import Highway, { LANE_W, LANES, ONCOMING_X, REBASE } from "./cars/Highway";
 import Cockpit from "./cars/Cockpit";
@@ -629,7 +629,7 @@ export default function Traffic({ started }: { started: boolean }) {
   const scene = useMemo(() => <TrafficScene started={started} onHud={setHud} />, [started]);
   return (
     <div className="absolute inset-0">
-      <Canvas shadows="percentage" dpr={dpr} gl={CANVAS_GL} camera={{ fov: 66, near: 0.05, far: 3000 }}>
+      <Canvas shadows="percentage" dpr={dpr} gl={CANVAS_GL} resize={CANVAS_RESIZE} camera={{ fov: 66, near: 0.05, far: 3000 }}>
         {scene}
       </Canvas>
       <div className="absolute top-4 right-4 flex flex-col gap-2 items-end">

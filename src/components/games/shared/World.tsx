@@ -325,7 +325,7 @@ function dprFor(level: number, cssPixels: number) {
   const css = Math.max(1, cssPixels);
   if (isTouchDevice()) {
     const max = Math.min(window.devicePixelRatio || 1, TOUCH_MAX_DPR);
-    return Math.min(max, Math.max(0.75, Math.sqrt(touchBudget(level) / css)));
+    return Math.min(max, Math.max(0.75, Math.floor(Math.sqrt(touchBudget(level) / css) * 8) / 8));
   }
   const budget = Math.max(1, Math.sqrt(PIXEL_BUDGET / css));
   return Math.min(window.devicePixelRatio, DPR_STEPS[level], budget);
@@ -355,6 +355,26 @@ function subscribeDpr(l: () => void) {
   return () => {
     dprListeners.delete(l);
   };
+}
+
+let sceneHold = false;
+const sceneHoldListeners = new Set<() => void>();
+
+export function setSceneHold(on: boolean) {
+  if (on === sceneHold) return;
+  sceneHold = on;
+  sceneHoldListeners.forEach((l) => l());
+}
+
+function subscribeSceneHold(l: () => void) {
+  sceneHoldListeners.add(l);
+  return () => {
+    sceneHoldListeners.delete(l);
+  };
+}
+
+function readSceneHold() {
+  return sceneHold;
 }
 
 function readDpr() {
@@ -533,6 +553,8 @@ function useFakeGpuLoad() {
 export function WorldEffects({ preset, ao = true, started = false }: { preset: WorldPreset; ao?: boolean; started?: boolean }) {
   const p = PRESETS[preset];
   const composer = useRef<PPEffectComposer>(null);
+  const hold = useSyncExternalStore(subscribeSceneHold, readSceneHold, () => false);
+  const setFrameloop = useThree((s) => s.setFrameloop);
   useWarmUp(composer, started);
   useFakeGpuLoad();
   const cssPixels = useThree((s) => s.size.width * s.size.height);
@@ -542,6 +564,7 @@ export function WorldEffects({ preset, ao = true, started = false }: { preset: W
   const [aoOn, setAoOn] = useState(() => ao && !touch);
   const aoRef = useRef(aoOn);
   const drops = useRef(0);
+  useEffect(() => setFrameloop(hold ? "never" : "always"), [hold, setFrameloop]);
   // re-evaluated on resize / fullscreen too (the budget depends on the canvas
   // size); R3F only reallocates when the resulting DPR actually changes
   useEffect(() => {
@@ -608,3 +631,5 @@ export const CANVAS_GL = {
   powerPreference: "high-performance" as const,
   stencil: false,
 };
+
+export const CANVAS_RESIZE = { debounce: { scroll: 50, resize: 150 } };

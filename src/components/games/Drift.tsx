@@ -6,7 +6,7 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import City from "./shared/City";
 import Car, { CarHandle } from "./shared/Car";
 import { generateCity, mulberry32, clampToPlayArea, distanceToEdge, BOUNDARY_WARN } from "./shared/cityGen";
-import { WorldAtmosphere, WorldEffects, CANVAS_GL, PRESETS, useCanvasDpr } from "./shared/World";
+import { WorldAtmosphere, WorldEffects, CANVAS_GL, CANVAS_RESIZE, PRESETS, useCanvasDpr } from "./shared/World";
 import { useKeys, makeEdge } from "./shared/useKeys";
 import { isTouchDevice, virtualSteer } from "./shared/input";
 import { useTouchPrefs } from "./shared/touchPrefs";
@@ -744,7 +744,7 @@ export default function Drift({ started }: { started: boolean }) {
   const scene = useMemo(() => <DriftScene started={started} onHud={setHud} />, [started]);
   return (
     <div className="absolute inset-0">
-      <Canvas shadows="percentage" dpr={dpr} gl={CANVAS_GL} camera={{ fov: 62, near: 0.2, far: 3000, position: [-68, 3, 0] }}>
+      <Canvas shadows="percentage" dpr={dpr} gl={CANVAS_GL} resize={CANVAS_RESIZE} camera={{ fov: 62, near: 0.2, far: 3000, position: [-68, 3, 0] }}>
         {scene}
       </Canvas>
       {started && <NavArrow deg={hud.navDeg} label={`${gateLabel} · ${hud.navDist} m`} />}

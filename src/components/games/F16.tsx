@@ -5,7 +5,7 @@ import * as THREE from "three";
 import { Canvas, useFrame } from "@react-three/fiber";
 import City from "./shared/City";
 import { generateCity, aabbCollide, type Building } from "./shared/cityGen";
-import { WorldAtmosphere, WorldEffects, CANVAS_GL, PRESETS, useCanvasDpr } from "./shared/World";
+import { WorldAtmosphere, WorldEffects, CANVAS_GL, CANVAS_RESIZE, PRESETS, useCanvasDpr } from "./shared/World";
 import { useKeys, makeEdge } from "./shared/useKeys";
 import { usePointerLook } from "./shared/usePointerLook";
 import { isTouchDevice, virtualStick, virtualThrottle } from "./shared/input";
@@ -960,7 +960,7 @@ export default function F16({ started }: { started: boolean }) {
           </div>
         </div>
       </div>
-      <Canvas shadows="percentage" dpr={dpr} gl={CANVAS_GL} camera={{ fov: 62, near: 0.2, far: 4500 }}>
+      <Canvas shadows="percentage" dpr={dpr} gl={CANVAS_GL} resize={CANVAS_RESIZE} camera={{ fov: 62, near: 0.2, far: 4500 }}>
         {scene}
       </Canvas>
       <div className="absolute top-4 right-4 flex flex-col gap-2 items-end">
