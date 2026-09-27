@@ -109,6 +109,9 @@ function TrafficScene({ started, onHud }: { started: boolean; onHud: (h: Hud) =>
   const edge = useMemo(() => makeEdge(), []);
   const horn = useMemo(() => new CarHorn(), []);
   useEffect(() => () => horn.dispose(), [horn]);
+  useEffect(() => {
+    if (started) horn.warm();
+  }, [started, horn]);
 
   const st = useRef({
     pz: 0,

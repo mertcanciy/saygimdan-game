@@ -236,6 +236,7 @@ export default function Cockpit({
   const needleR = useRef<THREE.Group>(null);
   const body = useRef<THREE.Group>(null);
   const mirrorFrame = useRef(0);
+  const lastMirror = useRef(0);
 
   // live rear-view mirror: a small camera looking backwards renders the scene
   // (without the cockpit) into a texture shown, mirrored, on the glass
@@ -373,6 +374,11 @@ export default function Cockpit({
     // on a struggling GPU refresh the mirror every other frame
     mirrorFrame.current++;
     if (dt > 1 / 40 && mirrorFrame.current % 2 === 1) return;
+    // high-refresh displays: ~60 Hz is plenty for a 5 cm mirror (a whole
+    // second scene render each time)
+    const now = performance.now();
+    if (now - lastMirror.current < 1000 / 75) return;
+    lastMirror.current = now;
     cam.updateMatrixWorld();
     _mirrorPos.copy(MIRROR_CAM_OFFSET).applyMatrix4(cam.matrixWorld);
     mirrorCam.position.copy(_mirrorPos);

@@ -114,6 +114,15 @@ export class CarHorn {
     return ctx;
   }
 
+  /**
+   * Build the audio graph now. The first AudioContext of a page takes ~100+ ms
+   * to create (audio device start-up), which is a visible hitch mid-game — so
+   * do it when the game starts instead of on the first honk.
+   */
+  warm() {
+    this.ensure();
+  }
+
   /** Hold state of the player's horn (call every frame; cheap when unchanged). */
   setHeld(on: boolean) {
     if (on === this.held) return;

@@ -9,7 +9,7 @@ import * as THREE from "three";
 import { useFrame, useThree } from "@react-three/fiber";
 import { Environment, Sky, Stars, Lightformer, PerformanceMonitor } from "@react-three/drei";
 import { EffectComposer, Bloom, ToneMapping, Vignette, N8AO, SMAA } from "@react-three/postprocessing";
-import { ToneMappingMode } from "postprocessing";
+import { ToneMappingMode, type EffectComposer as PPEffectComposer } from "postprocessing";
 import { isTouchDevice } from "./input";
 
 export type WorldPreset = "day" | "golden" | "night";
@@ -297,8 +297,94 @@ function EnvSkyline({ night }: { night: boolean }) {
  */
 const DPR_STEPS = [1.5, 1.25, 1, 0.85];
 
+/**
+ * Most pixels a frame may have. Big hi-DPI screens (5K, 4K at 150 %) would
+ * otherwise render 8–9 MP, where the post-processing chain is limited by
+ * memory bandwidth (≈30 fps on an M3). Never trims below the CSS resolution.
+ */
+const PIXEL_BUDGET = 4.2e6;
+
+function dprFor(level: number) {
+  const budget = Math.max(1, Math.sqrt(PIXEL_BUDGET / (window.innerWidth * window.innerHeight)));
+  return Math.min(window.devicePixelRatio, DPR_STEPS[level], budget);
+}
+
+/**
+ * N8AO switches itself to "transparency aware" mode as soon as the scene holds
+ * any transparent material (every game does: particles, glow pools, glass).
+ * That mode re-renders the whole scene twice more per frame at full
+ * resolution (re-rendering the sun's shadow map each time) and walks the scene
+ * graph six times, allocating a Map every frame — it was most of the AO cost.
+ * AO from the opaque depth buffer alone looks the same here.
+ */
+function opaqueOnlyAO(pass: { autoDetectTransparency: boolean; configuration: { transparencyAware: boolean } } | null) {
+  if (!pass) return;
+  pass.autoDetectTransparency = false;
+  pass.configuration.transparencyAware = false;
+}
+
+const _hidden: THREE.Object3D[] = [];
+
+/**
+ * Shader + GPU pipeline warm-up for everything in the scene, including objects
+ * that only appear later (afterburner glow, cockpit, explosion, sparks…).
+ * Otherwise each of those compiles its shader the first time it shows up —
+ * a 50–100 ms freeze mid-game. Runs while the start sheet is still up.
+ *
+ * 1. compile every material for the composer's HDR target (the scene is drawn
+ *    into that, linear and un-tonemapped — a different shader variant than the
+ *    screen), in parallel where the browser supports it;
+ * 2. then draw the scene into that target a couple of times with hidden
+ *    objects made visible: some GPUs (Metal) only build the pipeline on the
+ *    first real draw. The composer clears and redraws the target right after.
+ */
+function useWarmUp(composer: React.RefObject<PPEffectComposer | null>) {
+  const get = useThree((s) => s.get);
+  const prime = useRef(0);
+  useEffect(() => {
+    let alive = true;
+    const run = () => {
+      const c = composer.current;
+      if (!alive || !c) return;
+      const { gl, scene, camera } = get();
+      const prev = gl.getRenderTarget();
+      gl.setRenderTarget(c.inputBuffer);
+      const ready = gl.compileAsync(scene, camera);
+      gl.setRenderTarget(prev);
+      ready.then(() => alive && (prime.current = 2)).catch(() => {});
+    };
+    // once the environment map exists, and again after late loads (models)
+    const timers = [setTimeout(run, 700), setTimeout(run, 2500)];
+    return () => {
+      alive = false;
+      timers.forEach(clearTimeout);
+    };
+  }, [get, composer]);
+  // after the game logic (priority 0), before the composer (priority 1)
+  useFrame(({ gl, scene, camera }) => {
+    const c = composer.current;
+    if (prime.current <= 0 || !c) return;
+    prime.current--;
+    scene.traverse((o) => {
+      // lights stay as they are: another light count means other shaders
+      if (o.visible || (o as THREE.Light).isLight) return;
+      o.visible = true;
+      _hidden.push(o);
+    });
+    const prev = gl.getRenderTarget();
+    gl.setRenderTarget(c.inputBuffer);
+    gl.clear();
+    gl.render(scene, camera);
+    gl.setRenderTarget(prev);
+    for (const o of _hidden) o.visible = false;
+    _hidden.length = 0;
+  }, 0.9);
+}
+
 export function WorldEffects({ preset, ao = true }: { preset: WorldPreset; ao?: boolean }) {
   const p = PRESETS[preset];
+  const composer = useRef<PPEffectComposer>(null);
+  useWarmUp(composer);
   const setDpr = useThree((s) => s.setDpr);
   const [start] = useState(() => (isTouchDevice() ? 2 : 0));
   const [level, setLevel] = useState(start);
@@ -306,8 +392,7 @@ export function WorldEffects({ preset, ao = true }: { preset: WorldPreset; ao?: 
   const [monitor, setMonitor] = useState(false);
   const drops = useRef(0);
   useEffect(() => {
-    const cap = typeof window !== "undefined" ? window.devicePixelRatio : 1;
-    setDpr(Math.min(cap, DPR_STEPS[level]));
+    setDpr(dprFor(level));
   }, [level, setDpr]);
   useEffect(() => {
     // shader compilation and asset uploads make the first seconds look slow
@@ -330,9 +415,16 @@ export function WorldEffects({ preset, ao = true }: { preset: WorldPreset; ao?: 
           }}
         />
       )}
-      <EffectComposer multisampling={0}>
+      <EffectComposer ref={composer} multisampling={0}>
         {aoOn ? (
-          <N8AO aoRadius={4} distanceFalloff={1.2} intensity={preset === "night" ? 1.4 : 2.2} halfRes quality="performance" />
+          <N8AO
+            ref={opaqueOnlyAO}
+            aoRadius={4}
+            distanceFalloff={1.2}
+            intensity={preset === "night" ? 1.4 : 2.2}
+            halfRes
+            quality="performance"
+          />
         ) : (
           <></>
         )}

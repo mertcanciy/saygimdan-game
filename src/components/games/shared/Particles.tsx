@@ -128,13 +128,19 @@ const Particles = forwardRef<
     const sa = geo.getAttribute("aSize") as THREE.BufferAttribute;
     const aa = geo.getAttribute("aAlpha") as THREE.BufferAttribute;
     const p = pa.array as Float32Array;
+    const sz = sa.array as Float32Array;
+    const al = aa.array as Float32Array;
     const dragF = Math.exp(-drag * dt);
+    // nothing alive (the usual case): skip the loop's buffer uploads entirely
+    let any = false;
     for (let i = 0; i < count; i++) {
+      if (state.life[i] <= 0) continue;
+      any = true;
+      state.life[i] -= dt;
       if (state.life[i] <= 0) {
-        aa.setX(i, 0);
+        al[i] = 0;
         continue;
       }
-      state.life[i] -= dt;
       const t = 1 - state.life[i] / state.maxLife[i];
       state.vel[i * 3] *= dragF;
       state.vel[i * 3 + 1] = state.vel[i * 3 + 1] * dragF + gravity * dt;
@@ -142,11 +148,12 @@ const Particles = forwardRef<
       p[i * 3] += state.vel[i * 3] * dt;
       p[i * 3 + 1] += state.vel[i * 3 + 1] * dt;
       p[i * 3 + 2] += state.vel[i * 3 + 2] * dt;
-      sa.setX(i, state.size0[i] * (1 + t * state.grow[i]));
+      sz[i] = state.size0[i] * (1 + t * state.grow[i]);
       // fade in fast, out slow
       const a = t < 0.1 ? t / 0.1 : 1 - (t - 0.1) / 0.9;
-      aa.setX(i, Math.max(0, a));
+      al[i] = Math.max(0, a);
     }
+    if (!any) return;
     pa.needsUpdate = true;
     sa.needsUpdate = true;
     aa.needsUpdate = true;
