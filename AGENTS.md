@@ -57,7 +57,9 @@ public/models/ (spiderman.glb) · public/covers/<slug>.jpg (oyun kapakları)
 ## Dokunmatik kontroller
 - Boyutlar ekranın kısa kenarına göre (`vmin`, `touch/kit.tsx` → `SIZE_VARS`); yatay telefonda ana buton ≈82 px, direksiyon ≈160 px.
 - Sağ taraftaki butonlar bir `Cluster`: parmak kaldırmadan butondan butona kayılır (Gaz → Nitro), `chord` iki butonun arasına basınca ikisini birden basar (Gaz + El freni), `look` butondan başlayan sürükleme kamerayı çevirir (Ağ).
-- F-16 dokunmatikte ekran sürüklemesiyle değil sol çubukla uçar (`TOUCH_AIM`, bırakınca düz uçuş); Ağ Sallan'da havadayken sol çubuk bakışı döndürür (`TOUCH`).
+- Joystick ve direksiyon **ilk temas noktasını** referans alır ve dokunuş boyunca değiştirmez: çıktı = parmağın ilk değdiği yerden uzaklığı (joystick kenarda kırpılır, merkez kaymaz; direksiyon sadece yatay kaymaya bakar, ~75 px = tam kilit). Açıya ya da ekran kenarına göre hesaplama geri getirme; telefonda "saçmalıyor" diye geri döndü.
+- F-16 dokunmatikte sol çubukla uçar (`TOUCH_FLY`): yana = yatış açısı, yukarı/aşağı = tırmanış açısı, tutulur; bırakınca düz uçuş. Ağ Sallan'da havadayken sol çubuk salınımı (hız + ip) döndürür, kamera arkadan takip eder (`TOUCH`).
+- His testleri (`/tmp/sgmobile/t-feel.mjs` tipi): "girdi geliyor mu" yetmez; parmak X px oynayınca çıktı ne kadar, hızlı savuruşta tam kilide varıyor mu, ilk temas sıfır mı, dönüş hızı °/s kaç, bunları ölç.
 
 ## Şarkı
 - Tarayıcılar sesi sadece dokunuşun içinde başlatır: çalmayı tıklama işleyicisinden **senkron** çağır (`music.play()` / `music.playUnlessPaused()`, ya da `useMusicStore().start`). Araya `await`, efekt ya da `setTimeout` girmesin.
