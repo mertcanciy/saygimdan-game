@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import City from "./shared/City";
-import { WorldAtmosphere, WorldEffects, CANVAS_GL, useCanvasDpr } from "./shared/World";
+import { WorldAtmosphere, WorldEffects, CANVAS_GL, CANVAS_RESIZE, useCanvasDpr } from "./shared/World";
 import {
   generateCity,
   aabbCollide,
@@ -1612,7 +1612,7 @@ export default function Spiderman({ started }: { started: boolean }) {
   const scene = useMemo(() => <SpidermanScene started={started} onHud={setHud} />, [started]);
   return (
     <div className="absolute inset-0">
-      <Canvas shadows="percentage" dpr={dpr} gl={CANVAS_GL} camera={{ fov: 60, near: 0.2, far: 3000 }}>
+      <Canvas shadows="percentage" dpr={dpr} gl={CANVAS_GL} resize={CANVAS_RESIZE} camera={{ fov: 60, near: 0.2, far: 3000 }}>
         {scene}
       </Canvas>
       <div className="absolute top-4 right-4 flex flex-col gap-2 items-end">
