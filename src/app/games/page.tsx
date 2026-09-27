@@ -7,6 +7,7 @@ import { GAMES } from "@/lib/games";
 import { useHydrated, useUserStore } from "@/lib/store";
 import { Keys, SiteNav } from "@/components/site/Chrome";
 import GameShot from "@/components/site/GameShot";
+import InstallHint from "@/components/site/InstallHint";
 
 export default function GamesPage() {
   const router = useRouter();
@@ -42,6 +43,7 @@ export default function GamesPage() {
         <p className="mt-5 max-w-[32rem] text-[17px] leading-[1.55] text-muted-ink narrow:mt-4 narrow:text-[16px]">
           Bir oyun seç. Şarkı sağ altta; oyun değiştirsen de kaldığı yerden devam eder.
         </p>
+        <InstallHint className="mt-8 narrow:mt-6" />
 
         <ul className="mt-16 border-t border-line narrow:mt-10 short:mt-10">
           {GAMES.map((g, i) => (
