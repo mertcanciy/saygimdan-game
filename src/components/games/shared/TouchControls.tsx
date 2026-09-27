@@ -198,12 +198,12 @@ function Pad({ btn, size, style, className = "" }: { btn: Btn; size: PadSize; st
       aria-label={btn.aria ?? btn.label}
       {...handlers}
       style={{ width: `var(--tc-${size})`, height: `var(--tc-${size})`, ...style }}
-      className={`pointer-events-auto flex touch-none select-none flex-col items-center justify-center gap-[2px] rounded-full font-semibold leading-none tracking-[-0.01em] backdrop-blur-md transition-[transform,background-color,box-shadow] duration-75 [-webkit-tap-highlight-color:transparent] [-webkit-touch-callout:none] ${
+      className={`pointer-events-auto flex touch-none select-none flex-col items-center justify-center gap-[2px] rounded-full font-semibold leading-none tracking-[-0.01em] transition-[transform,background-color,box-shadow] duration-75 [-webkit-tap-highlight-color:transparent] [-webkit-touch-callout:none] ${
         down
           ? "scale-90 bg-red text-white shadow-[0_0_0_4px_rgba(227,10,23,0.3)]"
           : big
-            ? "bg-white/75 text-[#0a0a0a] shadow-[0_6px_18px_-8px_rgba(0,0,0,0.45)] ring-1 ring-white/70"
-            : "bg-[#0a0a0a]/35 text-white shadow-[0_6px_18px_-10px_rgba(0,0,0,0.5)] ring-1 ring-white/45"
+            ? "bg-white/85 text-[#0a0a0a] shadow-[0_6px_18px_-8px_rgba(0,0,0,0.45)] ring-1 ring-white/70"
+            : "bg-[#0a0a0a]/45 text-white shadow-[0_6px_18px_-10px_rgba(0,0,0,0.5)] ring-1 ring-white/45"
       } ${className}`}
     >
       {Icon && (
@@ -234,8 +234,8 @@ function Chip({ btn }: { btn: Btn }) {
       type="button"
       aria-label={btn.aria ?? btn.label}
       {...handlers}
-      className={`pointer-events-auto inline-flex h-[clamp(34px,9.5dvh,40px)] touch-none select-none items-center justify-center gap-1.5 rounded-full px-3 text-[12.5px] narrow:size-10 narrow:px-0 font-semibold backdrop-blur-md transition-[transform,background-color] duration-75 [-webkit-tap-highlight-color:transparent] [-webkit-touch-callout:none] ${
-        down ? "scale-95 bg-red text-white" : "bg-white/80 text-[#0a0a0a] ring-1 ring-white/70"
+      className={`pointer-events-auto inline-flex h-[clamp(34px,9.5dvh,40px)] touch-none select-none items-center justify-center gap-1.5 rounded-full px-3 text-[12.5px] narrow:size-10 narrow:px-0 font-semibold transition-[transform,background-color] duration-75 [-webkit-tap-highlight-color:transparent] [-webkit-touch-callout:none] ${
+        down ? "scale-95 bg-red text-white" : "bg-white/90 text-[#0a0a0a] ring-1 ring-white/70"
       }`}
     >
       {Icon && <Icon aria-hidden className="size-3.5 narrow:size-4" strokeWidth={2.4} />}
@@ -377,7 +377,7 @@ function FloatingStick() {
       <div
         ref={baseEl}
         aria-hidden
-        className={`absolute left-0 top-0 rounded-full bg-[#0a0a0a]/20 ring-1 ring-white/60 backdrop-blur-sm transition-opacity duration-100 ${active ? "opacity-100" : "opacity-0"}`}
+        className={`absolute left-0 top-0 rounded-full bg-[#0a0a0a]/25 ring-1 ring-white/60 transition-opacity duration-100 ${active ? "opacity-100" : "opacity-0"}`}
         style={{ width: "var(--tc-stick)", height: "var(--tc-stick)" }}
       >
         <div

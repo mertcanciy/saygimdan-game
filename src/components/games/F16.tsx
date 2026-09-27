@@ -5,7 +5,7 @@ import * as THREE from "three";
 import { Canvas, useFrame } from "@react-three/fiber";
 import City from "./shared/City";
 import { generateCity, aabbCollide, type Building } from "./shared/cityGen";
-import { WorldAtmosphere, WorldEffects, CANVAS_GL, PRESETS } from "./shared/World";
+import { WorldAtmosphere, WorldEffects, CANVAS_GL, PRESETS, useCanvasDpr } from "./shared/World";
 import { useKeys, makeEdge } from "./shared/useKeys";
 import { usePointerLook } from "./shared/usePointerLook";
 import Rings, { type RingData, ringHit } from "./shared/Rings";
@@ -807,7 +807,7 @@ function F16Scene({
       <Rings rings={ringsRef} count={RING_COUNT} radius={RING_R} tube={0.55} color="#38bdf8" />
       <Particles ref={sparks} count={300} gravity={0} drag={1.5} blending={THREE.AdditiveBlending} life={0.8} />
       <Explosion ref={boom} />
-      <WorldEffects preset={PRESET} />
+      <WorldEffects preset={PRESET} started={started} />
     </>
   );
 }
@@ -839,6 +839,7 @@ export default function F16({ started }: { started: boolean }) {
     return () => document.removeEventListener("pointerlockchange", on);
   }, []);
   // the 3D tree must not re-render with every HUD update (≈10×/s)
+  const dpr = useCanvasDpr();
   const scene = useMemo(() => <F16Scene started={started} onHud={setHud} reticle={reticle} />, [started, reticle]);
   return (
     <div className="absolute inset-0">
@@ -864,7 +865,7 @@ export default function F16({ started }: { started: boolean }) {
           </div>
         </div>
       </div>
-      <Canvas shadows="percentage" dpr={[1, 1.5]} gl={CANVAS_GL} camera={{ fov: 62, near: 0.2, far: 4500 }}>
+      <Canvas shadows="percentage" dpr={dpr} gl={CANVAS_GL} camera={{ fov: 62, near: 0.2, far: 4500 }}>
         {scene}
       </Canvas>
       <div className="absolute top-4 right-4 flex flex-col gap-2 items-end">

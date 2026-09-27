@@ -354,9 +354,37 @@ const TREE_NEAR = 150; // metres: detailed crowns inside, coarse ones beyond
 const TREE_REFRESH = 0.25; // seconds between LOD re-sorts
 
 /**
+ * Coarse-LOD tree material: a MeshStandardMaterial whose vertex shader
+ * collapses every instance within `near` metres of `center` (those are drawn by
+ * the detailed mesh instead). The far meshes therefore hold every tree and are
+ * uploaded once; only a uniform moves with the camera.
+ */
+function farTreeMaterial(color: string, roughness: number, lod: { center: { value: THREE.Vector2 }; near2: { value: number } }) {
+  const m = new THREE.MeshStandardMaterial({ color, roughness });
+  m.onBeforeCompile = (shader) => {
+    shader.uniforms.uLodCenter = lod.center;
+    shader.uniforms.uLodNear2 = lod.near2;
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", "#include <common>\nuniform vec2 uLodCenter;\nuniform float uLodNear2;")
+      .replace(
+        "#include <begin_vertex>",
+        `#include <begin_vertex>
+        #ifdef USE_INSTANCING
+          vec2 lodD = instanceMatrix[3].xz - uLodCenter;
+          if (dot(lodD, lodD) < uLodNear2) transformed = vec3(0.0);
+        #endif`
+      );
+  };
+  m.customProgramCacheKey = () => "tree-far-v1";
+  return m;
+}
+
+/**
  * Street trees with two levels of detail. Every tree's matrix/colour is built
- * once; a few times a second trees are re-sorted into a "near" (detailed) and a
- * "far" (coarse) instanced mesh by distance to the camera.
+ * once. The coarse ("far") meshes contain all trees and never change; their
+ * shader hides the ones near the camera. A few times a second the trees close
+ * to the camera are copied into the detailed ("near") meshes — only that
+ * small range is uploaded.
  *
  * Shadows come from an invisible proxy: the coarse crown (≈140 triangles
  * instead of ≈2400), only for the near trees (the shadow map only covers the
@@ -371,6 +399,20 @@ function Trees({ trees }: { trees: CityData["trees"] }) {
   const farCrown = useRef<THREE.InstancedMesh>(null);
   const shadowCrown = useRef<THREE.InstancedMesh>(null);
   const clock = useRef({ t: TREE_REFRESH, x: 1e9, z: 1e9 });
+  const lod = useMemo(
+    () => ({
+      // far culling radius a hair inside the near one: a tree right on the
+      // boundary may be drawn twice, never zero times
+      center: { value: new THREE.Vector2(1e9, 1e9) },
+      near2: { value: (TREE_NEAR - 0.5) ** 2 },
+      sphere: new THREE.Sphere(new THREE.Vector3(), TREE_NEAR + 14),
+    }),
+    []
+  );
+  const farMats = useMemo(
+    () => ({ trunk: farTreeMaterial("#4a3a2c", 0.95, lod), crown: farTreeMaterial("#ffffff", 0.9, lod) }),
+    [lod]
+  );
 
   const data = useMemo(() => {
     const trunk = new Float32Array(trees.length * 16);
@@ -406,45 +448,59 @@ function Trees({ trees }: { trees: CityData["trees"] }) {
     c.z = camera.position.z;
     const nt = nearTrunk.current;
     const nc = nearCrown.current;
-    const ft = farTrunk.current;
-    const fc = farCrown.current;
     const sc = shadowCrown.current;
-    if (!nt || !nc || !ft || !fc || !sc) return;
+    if (!nt || !nc || !sc) return;
     const near2 = TREE_NEAR * TREE_NEAR;
+    const tA = nt.instanceMatrix.array as Float32Array;
+    const cA = nc.instanceMatrix.array as Float32Array;
+    const sA = sc.instanceMatrix.array as Float32Array;
+    const colA = nc.instanceColor!.array as Float32Array;
     let n = 0;
-    let f = 0;
     for (let i = 0; i < trees.length; i++) {
       const dx = trees[i].x - c.x;
       const dz = trees[i].z - c.z;
-      const isNear = dx * dx + dz * dz < near2;
-      const j = isNear ? n++ : f++;
-      const t = isNear ? nt : ft;
-      const cr = isNear ? nc : fc;
-      (t.instanceMatrix.array as Float32Array).set(data.trunk.subarray(i * 16, i * 16 + 16), j * 16);
-      (cr.instanceMatrix.array as Float32Array).set(data.crown.subarray(i * 16, i * 16 + 16), j * 16);
-      (cr.instanceColor!.array as Float32Array).set(data.color.subarray(i * 3, i * 3 + 3), j * 3);
-      if (isNear) (sc.instanceMatrix.array as Float32Array).set(data.shadow.subarray(i * 16, i * 16 + 16), j * 16);
+      if (dx * dx + dz * dz >= near2) continue;
+      tA.set(data.trunk.subarray(i * 16, i * 16 + 16), n * 16);
+      cA.set(data.crown.subarray(i * 16, i * 16 + 16), n * 16);
+      sA.set(data.shadow.subarray(i * 16, i * 16 + 16), n * 16);
+      colA.set(data.color.subarray(i * 3, i * 3 + 3), n * 3);
+      n++;
     }
     nt.count = nc.count = sc.count = n;
-    ft.count = fc.count = f;
-    for (const m of [nt, nc, ft, fc, sc]) {
+    lod.center.value.set(c.x, c.z);
+    lod.sphere.center.set(c.x, 5, c.z);
+    for (const m of [nt, nc, sc]) {
+      m.instanceMatrix.clearUpdateRanges();
+      m.instanceMatrix.addUpdateRange(0, Math.max(1, n) * 16);
       m.instanceMatrix.needsUpdate = true;
-      if (m.instanceColor) m.instanceColor.needsUpdate = true;
-      m.computeBoundingSphere();
+      m.boundingSphere = lod.sphere;
     }
+    nc.instanceColor!.clearUpdateRanges();
+    nc.instanceColor!.addUpdateRange(0, Math.max(1, n) * 3);
+    nc.instanceColor!.needsUpdate = true;
   });
 
-  // instanceColor has to exist before the first sort writes into it
+  // far meshes: every tree, written once. Near meshes start empty
+  // (instanceColor has to exist before the first sort writes into it)
   useLayoutEffect(() => {
-    for (const m of [nearCrown.current, farCrown.current]) {
-      if (m && !m.instanceColor) m.setColorAt(0, tmpColor.setRGB(0.3, 0.42, 0.18));
-      if (m) m.count = 0;
+    const ft = farTrunk.current;
+    const fc = farCrown.current;
+    if (ft && fc) {
+      (ft.instanceMatrix.array as Float32Array).set(data.trunk);
+      (fc.instanceMatrix.array as Float32Array).set(data.crown);
+      if (!fc.instanceColor) fc.setColorAt(0, tmpColor);
+      (fc.instanceColor!.array as Float32Array).set(data.color);
+      ft.count = fc.count = trees.length;
+      ft.instanceMatrix.needsUpdate = fc.instanceMatrix.needsUpdate = fc.instanceColor!.needsUpdate = true;
+      ft.computeBoundingSphere();
+      fc.computeBoundingSphere();
     }
-    if (nearTrunk.current) nearTrunk.current.count = 0;
-    if (shadowCrown.current) shadowCrown.current.count = 0;
-    if (farTrunk.current) farTrunk.current.count = 0;
+    const nc = nearCrown.current;
+    if (nc && !nc.instanceColor) nc.setColorAt(0, tmpColor.setRGB(0.3, 0.42, 0.18));
+    for (const m of [nearTrunk.current, nc, shadowCrown.current]) if (m) m.count = 0;
+    lod.center.value.set(1e9, 1e9);
     clock.current.x = 1e9;
-  }, [data]);
+  }, [data, trees.length, lod]);
 
   const cap = Math.max(1, trees.length);
   return (
@@ -455,12 +511,8 @@ function Trees({ trees }: { trees: CityData["trees"] }) {
       <instancedMesh ref={nearCrown} args={[geo.crown, undefined, cap]} receiveShadow>
         <meshStandardMaterial color="#ffffff" roughness={0.85} />
       </instancedMesh>
-      <instancedMesh ref={farTrunk} args={[geo.trunkFar, undefined, cap]}>
-        <meshStandardMaterial color="#4a3a2c" roughness={0.95} />
-      </instancedMesh>
-      <instancedMesh ref={farCrown} args={[geo.crownFar, undefined, cap]}>
-        <meshStandardMaterial color="#ffffff" roughness={0.9} />
-      </instancedMesh>
+      <instancedMesh ref={farTrunk} args={[geo.trunkFar, farMats.trunk, cap]} />
+      <instancedMesh ref={farCrown} args={[geo.crownFar, farMats.crown, cap]} />
       {/* shadow-only: writes nothing to the screen, only to the shadow map */}
       <instancedMesh ref={shadowCrown} args={[geo.crownFar, undefined, cap]} castShadow>
         <meshBasicMaterial colorWrite={false} depthWrite={false} />

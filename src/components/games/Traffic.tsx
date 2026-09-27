@@ -6,7 +6,7 @@ import { Canvas, useFrame } from "@react-three/fiber";
 import { mulberry32 } from "./shared/cityGen";
 import { useKeys, makeEdge } from "./shared/useKeys";
 import Particles, { type ParticleHandle } from "./shared/Particles";
-import { WorldAtmosphere, WorldEffects, CANVAS_GL } from "./shared/World";
+import { WorldAtmosphere, WorldEffects, CANVAS_GL, useCanvasDpr } from "./shared/World";
 import { HudStat, HudBanner, HudModal, HudBar, HudCenter } from "./shared/GameHud";
 import Highway, { LANE_W, LANES, ONCOMING_X, REBASE } from "./cars/Highway";
 import Cockpit from "./cars/Cockpit";
@@ -109,6 +109,9 @@ function TrafficScene({ started, onHud }: { started: boolean; onHud: (h: Hud) =>
   const edge = useMemo(() => makeEdge(), []);
   const horn = useMemo(() => new CarHorn(), []);
   useEffect(() => () => horn.dispose(), [horn]);
+  useEffect(() => {
+    if (started) horn.warm();
+  }, [started, horn]);
 
   const st = useRef({
     pz: 0,
@@ -578,7 +581,7 @@ function TrafficScene({ started, onHud }: { started: boolean; onHud: (h: Hud) =>
       <Cockpit steerRef={steerVis} speedRef={kmhVis} rpmRef={rpmVis} highBeamRef={highBeam} color="#b4530a" visible={!debugCam} />
       {debugCam && <Car ref={playerCar} color="#b4530a" headlights={false} underglow={false} />}
       <Particles ref={sparks} count={300} gravity={-12} drag={1} blending={THREE.AdditiveBlending} />
-      <WorldEffects preset="night" />
+      <WorldEffects preset="night" started={started} />
     </>
   );
 }
@@ -597,10 +600,11 @@ export default function Traffic({ started }: { started: boolean }) {
   });
 
   // the 3D tree must not re-render with every HUD update (≈10×/s)
+  const dpr = useCanvasDpr();
   const scene = useMemo(() => <TrafficScene started={started} onHud={setHud} />, [started]);
   return (
     <div className="absolute inset-0">
-      <Canvas shadows="percentage" dpr={[1, 1.5]} gl={CANVAS_GL} camera={{ fov: 66, near: 0.05, far: 3000 }}>
+      <Canvas shadows="percentage" dpr={dpr} gl={CANVAS_GL} camera={{ fov: 66, near: 0.05, far: 3000 }}>
         {scene}
       </Canvas>
       <div className="absolute top-4 right-4 flex flex-col gap-2 items-end">

@@ -28,7 +28,7 @@ export function HudStat({
   return (
     <div
       data-hud-tile
-      className="relative min-w-[8.5rem] rounded-2xl bg-white/92 px-4 py-2.5 text-[#0a0a0a] shadow-[0_8px_24px_-14px_rgba(0,0,0,0.45)] backdrop-blur phone:min-w-[4.6rem] phone:rounded-xl phone:bg-white/85 phone:px-2.5 phone:py-1 phone:shadow-[0_6px_16px_-12px_rgba(0,0,0,0.45)]"
+      className="relative min-w-[8.5rem] rounded-2xl bg-white/95 px-4 py-2.5 text-[#0a0a0a] shadow-[0_8px_24px_-14px_rgba(0,0,0,0.45)] phone:min-w-[4.6rem] phone:rounded-xl phone:bg-white/90 phone:px-2.5 phone:py-1 phone:shadow-[0_6px_16px_-12px_rgba(0,0,0,0.45)]"
     >
       <div className="flex items-center gap-1.5 text-[12px] text-[#6e6e6e] phone:gap-1 phone:text-[10px] phone:leading-[1.3]">
         <span className="size-1.5 shrink-0 rounded-full" style={{ background: accent }} aria-hidden />
@@ -68,7 +68,7 @@ export function HudCenter({ text, touchText, className }: { text: string; touchT
         touch && "short:!top-[calc(max(0.625rem,env(safe-area-inset-top))+5.6rem)] short:!px-6 narrow:!top-[9.75rem] narrow:!pl-16"
       )}
     >
-      <span className="rounded-full bg-[#0a0a0a]/80 px-4 py-2 text-[13px] font-medium text-white backdrop-blur text-center phone:px-3.5 phone:py-1.5 phone:text-[12.5px]">
+      <span className="rounded-full bg-[#0a0a0a]/85 px-4 py-2 text-[13px] font-medium text-white text-center phone:px-3.5 phone:py-1.5 phone:text-[12.5px]">
         {touch ? touchText : text}
       </span>
     </div>
@@ -89,7 +89,7 @@ export function HudHint({ text, touchText }: { text: string; touchText?: string 
     >
       <span
         className={cn(
-          "rounded-full bg-white/90 px-4 py-2 text-center text-[13px] text-[#0a0a0a] backdrop-blur",
+          "rounded-full bg-white/95 px-4 py-2 text-center text-[13px] text-[#0a0a0a]",
           touch && "max-w-[min(26rem,50vw)] px-3.5 py-1.5 text-[12.5px] leading-[1.35] narrow:max-w-[70vw]"
         )}
       >
@@ -169,7 +169,7 @@ export function HudBar({ label, value, accent }: { label: string; value: number;
   return (
     <div
       data-hud-tile
-      className="min-w-[8.5rem] rounded-2xl bg-white/92 px-4 py-2.5 text-[#0a0a0a] shadow-[0_8px_24px_-14px_rgba(0,0,0,0.45)] backdrop-blur phone:min-w-[4.6rem] phone:rounded-xl phone:bg-white/85 phone:px-2.5 phone:py-1.5"
+      className="min-w-[8.5rem] rounded-2xl bg-white/95 px-4 py-2.5 text-[#0a0a0a] shadow-[0_8px_24px_-14px_rgba(0,0,0,0.45)] phone:min-w-[4.6rem] phone:rounded-xl phone:bg-white/90 phone:px-2.5 phone:py-1.5"
     >
       <div className="flex justify-between gap-2 text-[12px] text-[#6e6e6e] phone:text-[10px]">
         <span>{label}</span>
@@ -190,7 +190,7 @@ export function HudEdge({ show, text = "Şehrin sınırı. Geri dön." }: { show
   if (!show) return null;
   return (
     <div className="pointer-events-none absolute inset-x-0 top-[34%] flex justify-center px-4 animate-fade-up">
-      <span className="flex items-center gap-2.5 rounded-full bg-[#0a0a0a]/85 py-2 pl-2 pr-4 text-[14px] font-semibold text-white backdrop-blur phone:gap-2 phone:py-1.5 phone:pl-1.5 phone:pr-3.5 phone:text-[12.5px]">
+      <span className="flex items-center gap-2.5 rounded-full bg-[#0a0a0a]/90 py-2 pl-2 pr-4 text-[14px] font-semibold text-white phone:gap-2 phone:py-1.5 phone:pl-1.5 phone:pr-3.5 phone:text-[12.5px]">
         <span aria-hidden className="grid size-7 shrink-0 place-items-center rounded-full bg-red text-[15px] font-extrabold text-white phone:size-6 phone:text-[13px]">
           !
         </span>

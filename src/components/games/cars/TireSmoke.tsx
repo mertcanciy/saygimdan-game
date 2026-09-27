@@ -197,12 +197,16 @@ const TireSmoke = forwardRef<
     const p = data.ps.array as Float32Array;
     const ar = data.ar.array as Float32Array;
     const k = Math.exp(-drag * dt);
+    // no live puffs (most of the time): no buffer uploads
+    let any = false;
     for (let i = 0; i < count; i++) {
+      if (data.life[i] <= 0) continue;
+      any = true;
+      data.life[i] -= dt;
       if (data.life[i] <= 0) {
         ar[i * 2] = 0;
         continue;
       }
-      data.life[i] -= dt;
       const t = 1 - Math.max(0, data.life[i]) / data.max[i];
       data.vel[i * 3] *= k;
       data.vel[i * 3 + 1] = data.vel[i * 3 + 1] * k + lift * dt;
@@ -215,6 +219,7 @@ const TireSmoke = forwardRef<
       ar[i * 2] = data.a0[i] * Math.min(1, t * 7) * Math.pow(1 - t, 1.5);
       ar[i * 2 + 1] += data.spin[i] * dt;
     }
+    if (!any) return;
     data.ps.needsUpdate = true;
     data.ar.needsUpdate = true;
   });

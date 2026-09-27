@@ -47,7 +47,8 @@ export default function SongDock() {
   // in-game on a phone the corners belong to the thumbs: shrink to a small round button between them
   const pathname = usePathname();
   const touch = useIsTouch();
-  const compact = touch && pathname.startsWith("/play");
+  const inGame = pathname.startsWith("/play");
+  const compact = touch && inGame;
   const initRef = useRef(false);
 
   useEffect(() => {
@@ -182,10 +183,13 @@ export default function SongDock() {
 
   return (
     <div
-      className={`fixed z-50 flex items-center rounded-full border border-line text-ink backdrop-blur ${
+      className={`fixed z-50 flex items-center rounded-full border border-line text-ink ${
+        // over a live game canvas a backdrop blur is recomputed every frame: skip it there
+        inGame ? "" : "backdrop-blur"
+      } ${
         compact
           ? // portrait: the bottom edge is all thumbs, so park it on the right above the button arc
-            "bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 gap-0 bg-paper/80 p-1 shadow-[0_6px_18px_-10px_rgba(0,0,0,0.4)] narrow:bottom-[calc(max(1.5rem,env(safe-area-inset-bottom))+14rem)] narrow:left-auto narrow:right-[max(1rem,env(safe-area-inset-right))] narrow:translate-x-0"
+            "bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 gap-0 bg-paper/90 p-1 shadow-[0_6px_18px_-10px_rgba(0,0,0,0.4)] narrow:bottom-[calc(max(1.5rem,env(safe-area-inset-bottom))+14rem)] narrow:left-auto narrow:right-[max(1rem,env(safe-area-inset-right))] narrow:translate-x-0"
           : "bottom-4 right-4 gap-3 bg-paper/95 py-1.5 pl-1.5 pr-4 shadow-[0_10px_30px_-12px_rgba(0,0,0,0.25)] narrow:bottom-3 narrow:right-3 narrow:gap-2.5 narrow:pr-3.5"
       }`}
       role="region"

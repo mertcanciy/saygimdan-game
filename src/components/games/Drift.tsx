@@ -6,7 +6,7 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import City from "./shared/City";
 import Car, { CarHandle } from "./shared/Car";
 import { generateCity, mulberry32, clampToPlayArea, distanceToEdge, BOUNDARY_WARN } from "./shared/cityGen";
-import { WorldAtmosphere, WorldEffects, CANVAS_GL, PRESETS } from "./shared/World";
+import { WorldAtmosphere, WorldEffects, CANVAS_GL, PRESETS, useCanvasDpr } from "./shared/World";
 import { useKeys, makeEdge } from "./shared/useKeys";
 import { stepDrift, TYRE, type DriftBody } from "./cars/driftPhysics";
 import Particles, { type ParticleHandle } from "./shared/Particles";
@@ -693,7 +693,7 @@ function DriftScene({ started, onHud }: { started: boolean; onHud: (h: Hud) => v
           <meshBasicMaterial color="#ffd400" toneMapped={false} />
         </mesh>
       ))}
-      <WorldEffects preset={PRESET} />
+      <WorldEffects preset={PRESET} started={started} />
     </>
   );
 }
@@ -701,7 +701,7 @@ function DriftScene({ started, onHud }: { started: boolean; onHud: (h: Hud) => v
 function NavArrow({ deg, label }: { deg: number; label: string }) {
   return (
     <div className="pointer-events-none absolute inset-x-0 top-4 flex justify-center short:top-3 narrow:top-[13.5rem]">
-      <div className="flex items-center gap-2.5 rounded-full bg-[#0a0a0a]/80 py-1.5 pl-1.5 pr-4 text-white backdrop-blur">
+      <div className="flex items-center gap-2.5 rounded-full bg-[#0a0a0a]/85 py-1.5 pl-1.5 pr-4 text-white">
         <span className="grid size-8 place-items-center rounded-full bg-red text-white">
           <svg
             viewBox="0 0 24 24"
@@ -723,10 +723,11 @@ export default function Drift({ started }: { started: boolean }) {
   const gateLabel = hud.gate === 0 ? (hud.lap === 0 && hud.lapTime === 0 ? "Başlangıç" : "Bitiş") : `Kapı ${hud.gate}/${hud.gates - 1}`;
 
   // the 3D tree must not re-render with every HUD update (≈10×/s)
+  const dpr = useCanvasDpr();
   const scene = useMemo(() => <DriftScene started={started} onHud={setHud} />, [started]);
   return (
     <div className="absolute inset-0">
-      <Canvas shadows="percentage" dpr={[1, 1.5]} gl={CANVAS_GL} camera={{ fov: 62, near: 0.2, far: 3000, position: [-68, 3, 0] }}>
+      <Canvas shadows="percentage" dpr={dpr} gl={CANVAS_GL} camera={{ fov: 62, near: 0.2, far: 3000, position: [-68, 3, 0] }}>
         {scene}
       </Canvas>
       {started && <NavArrow deg={hud.navDeg} label={`${gateLabel} · ${hud.navDist} m`} />}

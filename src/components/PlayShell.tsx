@@ -69,7 +69,7 @@ export default function PlayShell({ game }: { game: GameInfo }) {
         <Link
           href="/games"
           aria-label="Oyunlara dön"
-          className="inline-flex h-10 items-center gap-2 rounded-full border border-line bg-paper/95 pl-3 pr-4 text-[14px] font-medium text-ink backdrop-blur hover:border-ink short:size-9 short:justify-center short:p-0 narrow:size-9 narrow:justify-center narrow:p-0"
+          className="inline-flex h-10 items-center gap-2 rounded-full border border-line bg-paper/95 pl-3 pr-4 text-[14px] font-medium text-ink hover:border-ink short:size-9 short:justify-center short:p-0 narrow:size-9 narrow:justify-center narrow:p-0"
         >
           <ArrowLeft className="size-4" />
           <span className="short:hidden narrow:hidden">Oyunlar</span>
@@ -82,7 +82,7 @@ export default function PlayShell({ game }: { game: GameInfo }) {
             type="button"
             onClick={toggleFullscreen}
             aria-label={fullscreen ? "Tam ekrandan çık" : "Tam ekran"}
-            className="grid size-10 place-items-center rounded-full border border-line bg-paper/95 text-ink backdrop-blur short:size-9 narrow:size-9"
+            className="grid size-10 place-items-center rounded-full border border-line bg-paper/95 text-ink short:size-9 narrow:size-9"
           >
             {fullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
           </button>
@@ -98,7 +98,7 @@ export default function PlayShell({ game }: { game: GameInfo }) {
             type="button"
             onClick={() => setShowControls((v) => !v)}
             aria-expanded={showControls}
-            className="inline-flex h-10 items-center rounded-full border border-line bg-paper/95 px-4 text-[14px] font-medium text-ink backdrop-blur hover:border-ink"
+            className="inline-flex h-10 items-center rounded-full border border-line bg-paper/95 px-4 text-[14px] font-medium text-ink hover:border-ink"
           >
             {showControls ? "Kontrolleri gizle" : "Kontroller"}
           </button>
@@ -176,7 +176,7 @@ function ControlsList({ game, className = "" }: { game: GameInfo; className?: st
 
 function ControlsCard({ game, className = "" }: { game: GameInfo; className?: string }) {
   return (
-    <div className={`rounded-[18px] border border-line bg-paper/95 p-4 backdrop-blur ${className}`}>
+    <div className={`rounded-[18px] border border-line bg-paper/95 p-4 ${className}`}>
       <p className="mb-3 text-[13px] leading-[1.45] text-muted-ink">{game.goal}</p>
       <ControlsList game={game} />
     </div>

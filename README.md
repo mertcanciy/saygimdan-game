@@ -41,6 +41,8 @@ Bengü'nün **Saygımdan** şarkısını sonsuz loop'ta dinlerken kafa dağıtma
 - `facade.ts`: dünya koordinatlarında çalışan cephe shader'ı. Pencereler, doğramalar, kat döşemeleri, vitrinler ve çatı her binada gerçek ölçüde; cam panellerde yansıma kırılması, geceleri rastgele yanan pencereler.
 - `City.tsx`: bina, yol çizgileri, yaya geçitleri, kaldırımlar, ağaçlar, sokak lambaları, çatı ekipmanları; hepsi instancing ile.
 - `World.tsx`: `day` / `golden` / `night` ön ayarları: gökyüzü, kamerayı takip eden gölgeler, ortam yansımaları, sis ve post‑processing (N8AO, bloom, ACES, SMAA).
+  - Başlat ekranı açıkken tüm shader'lar (gizli objeler dahil: afterburner, kokpit, patlama…) composer hedefi için derlenip bir kez çizilir; oyun içinde ilk kullanımda takılma olmaz.
+  - N8AO'nun "transparency aware" modu kapalı (her kare sahneyi 2 kez daha render ediyordu); çözünürlük ~4.2 MP ile sınırlı.
 
 ## Teknik
 

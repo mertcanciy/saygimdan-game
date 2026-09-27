@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import City from "./shared/City";
-import { WorldAtmosphere, WorldEffects, CANVAS_GL } from "./shared/World";
+import { WorldAtmosphere, WorldEffects, CANVAS_GL, useCanvasDpr } from "./shared/World";
 import {
   generateCity,
   aabbCollide,
@@ -1500,7 +1500,7 @@ function SpidermanScene({ started, onHud }: { started: boolean; onHud: (h: Hud) 
       <Particles ref={particles} count={300} gravity={-2} drag={2} blending={THREE.AdditiveBlending} />
       <Particles ref={dust} count={160} gravity={0.6} drag={3} opacity={0.55} />
       <SpeedLines speedRef={speedRef} />
-      <WorldEffects preset="day" />
+      <WorldEffects preset="day" started={started} />
     </>
   );
 }
@@ -1521,10 +1521,11 @@ export default function Spiderman({ started }: { started: boolean }) {
     wallHint: false,
   });
   // the 3D tree must not re-render with every HUD update (≈10×/s)
+  const dpr = useCanvasDpr();
   const scene = useMemo(() => <SpidermanScene started={started} onHud={setHud} />, [started]);
   return (
     <div className="absolute inset-0">
-      <Canvas shadows="percentage" dpr={[1, 1.5]} gl={CANVAS_GL} camera={{ fov: 60, near: 0.2, far: 3000 }}>
+      <Canvas shadows="percentage" dpr={dpr} gl={CANVAS_GL} camera={{ fov: 60, near: 0.2, far: 3000 }}>
         {scene}
       </Canvas>
       <div className="absolute top-4 right-4 flex flex-col gap-2 items-end">
