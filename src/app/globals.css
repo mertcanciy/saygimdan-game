@@ -261,9 +261,11 @@
     right: max(0.75rem, env(safe-area-inset-right));
   }
 }
-@media (max-height: 520px) and (min-width: 900px) {
+@media (max-height: 520px) and (min-width: 700px) {
   .flex-col:has(> [data-hud-tile]) {
-    grid-template-columns: repeat(4, minmax(4.6rem, auto));
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(4.6rem, auto);
   }
 }
 

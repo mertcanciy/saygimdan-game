@@ -5,7 +5,7 @@ import * as THREE from "three";
 import { Canvas, useFrame } from "@react-three/fiber";
 import City from "./shared/City";
 import { generateCity, aabbCollide, type Building } from "./shared/cityGen";
-import { WorldAtmosphere, WorldEffects, CANVAS_GL, CANVAS_RESIZE, PRESETS, useCanvasDpr } from "./shared/World";
+import { WorldAtmosphere, WorldEffects, CANVAS_GL, CANVAS_RESIZE, PRESETS, useCanvasDpr, useSceneFrameloop } from "./shared/World";
 import { useKeys, makeEdge } from "./shared/useKeys";
 import { usePointerLook } from "./shared/usePointerLook";
 import { isTouchDevice, virtualStick, virtualThrottle } from "./shared/input";
@@ -935,6 +935,7 @@ export default function F16({ started }: { started: boolean }) {
   }, []);
   // the 3D tree must not re-render with every HUD update (≈10×/s)
   const dpr = useCanvasDpr();
+  const frameloop = useSceneFrameloop();
   const scene = useMemo(() => <F16Scene started={started} onHud={setHud} reticle={reticle} />, [started, reticle]);
   return (
     <div className="absolute inset-0">
@@ -960,7 +961,7 @@ export default function F16({ started }: { started: boolean }) {
           </div>
         </div>
       </div>
-      <Canvas shadows="percentage" dpr={dpr} gl={CANVAS_GL} resize={CANVAS_RESIZE} camera={{ fov: 62, near: 0.2, far: 4500 }}>
+      <Canvas shadows="percentage" frameloop={frameloop} dpr={dpr} gl={CANVAS_GL} resize={CANVAS_RESIZE} camera={{ fov: 62, near: 0.2, far: 4500 }}>
         {scene}
       </Canvas>
       <div className="absolute top-4 right-4 flex flex-col gap-2 items-end">

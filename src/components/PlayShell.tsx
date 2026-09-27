@@ -40,6 +40,7 @@ export default function PlayShell({ game }: { game: GameInfo }) {
   // start sheet → playing ⇄ paused (touch: back gesture / app in background)
   const [phase, setPhase] = useState<"start" | "play" | "paused">("start");
   const started = phase === "play";
+  const [hzReady, setHzReady] = useState(false);
   // real-device testing: ?rec=1 records the touches (see touchRecorder.ts)
   const recording = useSyncExternalStore(noop, recordingRequested, () => false);
   const recStarted = useRef(false);
@@ -52,7 +53,7 @@ export default function PlayShell({ game }: { game: GameInfo }) {
   const [portraitOk, setPortraitOk] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const userLeftFullscreen = useRef(false);
-  const hold = phase === "paused" || (touch && portrait && !portraitOk);
+  const hold = phase === "paused" || (phase === "play" && touch && portrait && !portraitOk);
 
   useEffect(() => {
     if (hydrated && !user) router.replace("/#giris");
@@ -65,7 +66,15 @@ export default function PlayShell({ game }: { game: GameInfo }) {
   useEffect(() => () => setSceneHold(false), []);
 
   // before the 3D scene loads, while frames are still cheap (see World.tsx adaptive quality)
-  useEffect(() => measureDisplayHz(), []);
+  useEffect(() => {
+    let alive = true;
+    void measureDisplayHz().then(() => {
+      if (alive) setHzReady(true);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   // the song dock (root layout) moves out of the thumbs' way while touch controls are up
   const controlsUp = started && touch;
@@ -148,12 +157,18 @@ export default function PlayShell({ game }: { game: GameInfo }) {
 
   return (
     <main className="relative h-dvh w-full touch-none overflow-hidden overscroll-none bg-[#c9d4de] select-none">
-      {hydrated && user && <GameComponent started={started} />}
+      {hydrated && user && hzReady && <GameComponent started={started} />}
 
       {/* top-left: way back + where you are (compact on phones) */}
       <div className="absolute left-[max(1rem,env(safe-area-inset-left))] top-4 z-30 flex items-center gap-2 short:left-[max(0.75rem,env(safe-area-inset-left))] short:top-[max(0.625rem,env(safe-area-inset-top))] short:gap-1.5 narrow:gap-1.5">
         <Link
           href="/games"
+          onClick={(e) => {
+            if (touch && phase === "play" && window.history.state?.saygimdanPause) {
+              e.preventDefault();
+              router.replace("/games");
+            }
+          }}
           aria-label="Oyunlara dön"
           className="inline-flex h-10 items-center gap-2 rounded-full border border-line bg-paper/95 pl-3 pr-4 text-[14px] font-medium text-ink hover:border-ink short:size-9 short:justify-center short:p-0 narrow:size-9 narrow:justify-center narrow:p-0"
         >

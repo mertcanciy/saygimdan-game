@@ -93,30 +93,42 @@ export function isTabletScreen(): boolean {
 /* ---- display refresh rate ---- */
 
 let displayHz = 60;
-let hzMeasured = false;
+let displayHzPromise: Promise<void> | null = null;
 
 /**
  * Measure the display's refresh rate from a bare requestAnimationFrame loop.
- * Call it early (the game shell does, on mount) while nothing heavy renders
- * yet: later, a slow GPU and a 30 Hz low-power cap look the same.
+ * The game shell waits for this before mounting the scene; later, a slow GPU
+ * and a 30 Hz low-power cap look the same.
  */
-export function measureDisplayHz() {
-  if (hzMeasured || typeof window === "undefined") return;
-  hzMeasured = true;
-  const dts: number[] = [];
-  let last = 0;
-  const tick = (t: number) => {
-    if (last) dts.push(t - last);
-    last = t;
-    if (dts.length < 45) {
-      requestAnimationFrame(tick);
-      return;
+export function measureDisplayHz(): Promise<void> {
+  if (typeof window === "undefined") return (displayHzPromise ??= Promise.resolve());
+  displayHzPromise ??= new Promise<void>((resolve) => {
+    const dts: number[] = [];
+    let last = 0;
+    let settled = false;
+    const timeout = window.setTimeout(finish, 1500);
+    function finish() {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeout);
+      resolve();
     }
-    dts.sort((a, b) => a - b);
-    const ms = dts[Math.floor(dts.length * 0.2)];
-    displayHz = ms < 9.5 ? 120 : ms < 12.5 ? 90 : ms < 22 ? 60 : 30;
-  };
-  requestAnimationFrame(tick);
+    const tick = (t: number) => {
+      if (settled) return;
+      if (last) dts.push(t - last);
+      last = t;
+      if (dts.length < 45) {
+        requestAnimationFrame(tick);
+        return;
+      }
+      dts.sort((a, b) => a - b);
+      const ms = dts[Math.floor(dts.length * 0.2)];
+      displayHz = ms < 9.5 ? 120 : ms < 12.5 ? 90 : ms < 22 ? 60 : 30;
+      finish();
+    };
+    requestAnimationFrame(tick);
+  });
+  return displayHzPromise;
 }
 
 /** Display refresh rate (Hz): 60 until measured. */
