@@ -23,10 +23,11 @@ Bengü'nün **Saygımdan** şarkısını sonsuz loop'ta dinlerken kafa dağıtma
 
 | Hareket | Klavye / fare | Dokunmatik |
 | --- | --- | --- |
-| Ağ at, sallan; bırakınca uç | Space / sol tık (basılı) | Ağ |
+| Ağ at, sallan; bırakınca uç | Space / sol tık (basılı) | Ağ (basılıyken kaydır: kamera) |
+| Havada sağa sola dön | fare | Sol joystick |
 | Zip: baktığın kenara ağ fırlat, hızla çekil; basılı tutarsan kenardan fırlarsın | Q / sağ tık | Zip |
 | Duvara tırman (binaya doğru koş / havada çarp) | W A S D | Sol joystick |
-| Duvarda koş, yerde depar, havada dalış | Shift | Koş |
+| Duvarda koş, yerde depar, havada dalış | Shift | Koş (yerde: joystick'i sonuna kadar it) |
 | Duvardan sıçra | Space (duvardayken) | Ağ |
 
 - Tırmanma: `spiderman/wall.ts` bina hacimlerinin yüzlerini duvar olarak tanımlar. Köşeden yan yüze dönülür, bitişik binaya geçilir, üst kenarda çatıya atlanır; podyumlu kulelerde gövdenin tabanında podyum çatısına inilir.
@@ -34,6 +35,12 @@ Bengü'nün **Saygımdan** şarkısını sonsuz loop'ta dinlerken kafa dağıtma
 - Animasyon (`spiderman/heroAnim.ts`): mocap klipler + prosedürel katmanlar (duvarda sürünme yürüyüşü, duvarda koşu, zip, burgu/takla, thwip parmakları).
 - Performans: 3D sahne HUD güncellemelerinde yeniden render edilmez (dört oyunda da); tüm shader'lar, gizli efektler dahil, oyun başında post‑processing hedefi için derlenip bir kez görünmez çizilir, böylece ilk sallanmada takılma olmaz.
 - Test için dokunmatik modu zorlamak: `?touch=1` (kapatmak: `?touch=0`).
+
+## Telefonda
+
+- **Kontroller** (`shared/TouchControls.tsx`, `shared/touch/`): Drift ve Makas'ta solda tutup çevrilen direksiyon (Makas'ta ortası korna), sağda gaz / fren pedalları; Ağ Sallan ve F‑16'da solda yüzen joystick; F‑16'da sağda gaz kolu (en üst: afterburner). Sağ taraftaki butonlarda parmak kaldırmadan butondan butona kayılır, iki butonun arasına basınca ikisi birden basılır (Gaz + El freni, Gaz + Nitro).
+- **Görüntü**: çözünürlük piksel bütçesiyle (telefonda ≈ DPR 1.8'den başlar), yavaş cihazda ölçülen fps'e göre tek adımda iner.
+- **Şarkı**: Başlat'a dokunulduğu anda başlar (oynatıcı önceden hazırlanır); tarayıcı yine izin vermezse şarkı butonu "Şarkı için dokun" der.
 
 ## Ortak dünya (`src/components/games/shared/`)
 
