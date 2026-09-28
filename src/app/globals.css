@@ -261,10 +261,17 @@
     right: max(0.75rem, env(safe-area-inset-right));
   }
 }
-@media (max-height: 520px) and (min-width: 900px) {
+@media (max-height: 520px) and (min-width: 700px) {
   .flex-col:has(> [data-hud-tile]) {
-    grid-template-columns: repeat(4, minmax(4.6rem, auto));
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(4.6rem, auto);
   }
+}
+
+/* touch stick pushed to its rim (touch/Stick.tsx): the ring turns record-label red */
+.stick-rim {
+  box-shadow: 0 0 0 3px var(--red), 0 0 22px rgba(220, 30, 42, 0.55);
 }
 
 /* equalizer bars in the song dock */

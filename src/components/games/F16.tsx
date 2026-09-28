@@ -5,9 +5,11 @@ import * as THREE from "three";
 import { Canvas, useFrame } from "@react-three/fiber";
 import City from "./shared/City";
 import { generateCity, aabbCollide, type Building } from "./shared/cityGen";
-import { WorldAtmosphere, WorldEffects, CANVAS_GL, PRESETS, useCanvasDpr } from "./shared/World";
+import { WorldAtmosphere, WorldEffects, CANVAS_GL, CANVAS_RESIZE, PRESETS, useCanvasDpr, useSceneFrameloop } from "./shared/World";
 import { useKeys, makeEdge } from "./shared/useKeys";
 import { usePointerLook } from "./shared/usePointerLook";
+import { isTouchDevice, virtualStick, virtualThrottle } from "./shared/input";
+import { useIsTouch } from "./shared/useDevice";
 import Rings, { type RingData, ringHit } from "./shared/Rings";
 import Particles, { type ParticleHandle } from "./shared/Particles";
 import { HudStat, HudCenter, HudBanner, HudModal, HudBar, HudHint, HudEdge } from "./shared/GameHud";
@@ -67,6 +69,42 @@ const AIM = {
   bankFull: THREE.MathUtils.degToRad(14),
   yawGain: 3.0,
 };
+
+/*
+ * Touch (on-screen stick), arcade style: stick sideways = a bank angle (the
+ * jet turns because it's banked), stick up / down = a climb / dive angle, and
+ * the jet holds them. Centred (or released) = wings level, level flight, so a
+ * thumb slipping off never sends the jet tumbling. The expo curve keeps small
+ * thumb movements small.
+ * The rim of the stick (outer ~12 %, it lights up red) is for aggressive
+ * flying: up at the rim = keep pulling (a loop), sideways at the rim = a
+ * near-knife-edge hard turn, down at the rim = a steep dive.
+ */
+const TOUCH_FLY = {
+  maxBank: THREE.MathUtils.degToRad(62),
+  climb: THREE.MathUtils.degToRad(28),
+  dive: THREE.MathUtils.degToRad(22),
+  /** stick deflection (per axis) where the rim starts */
+  rim: 0.88,
+  hardBank: THREE.MathUtils.degToRad(84),
+  /** stick pull held in the rim's hard turn */
+  hardPull: 0.8,
+  steepDive: THREE.MathUtils.degToRad(55),
+  deadzone: 0.1,
+  /** 1 = linear, 2 = square: fine control near the centre */
+  expo: 1.6,
+  /** bank-angle hold: stick per radian of error / per rad/s of roll rate */
+  rollGain: 2.4,
+  rollDamp: 0.22,
+  /** climb-angle hold (more pull when banked, so a turn keeps its altitude) */
+  pitchGain: 2.2,
+  pitchDamp: 0.35,
+};
+
+function stickAxis(v: number) {
+  const m = Math.max(0, Math.abs(v) - TOUCH_FLY.deadzone) / (1 - TOUCH_FLY.deadzone);
+  return Math.sign(v) * Math.pow(m, TOUCH_FLY.expo);
+}
 
 /** Put a DOM reticle where `dir` (seen from the camera) lands on screen. */
 function placeReticle(el: HTMLDivElement | null, cam: THREE.Camera, dir: THREE.Vector3, on: boolean) {
@@ -205,7 +243,9 @@ function F16Scene({
 
   const keys = useKeys();
   const edge = useMemo(() => makeEdge(), []);
-  const { yaw: lookYaw, pitch: lookPitch, locked } = usePointerLook(AIM.sensitivity, 1e6, true);
+  // touch flies with the on-screen stick, not by dragging the view
+  const touch = useMemo(() => isTouchDevice(), []);
+  const { yaw: lookYaw, pitch: lookPitch, locked } = usePointerLook(AIM.sensitivity, 1e6, true, !touch);
   const lockedRef = useRef(false);
   useEffect(() => {
     lockedRef.current = locked;
@@ -275,6 +315,9 @@ function F16Scene({
     keyboardFlying: false,
     locked: false,
     yawAuto: 0,
+    /** touch flight: last bank / pitch (for their rates) */
+    lastBank: 0,
+    lastPitch: 0,
   });
 
   const banner = (text: string) => {
@@ -384,7 +427,10 @@ function F16Scene({
       s.lastLookPitch = lookPitch.current;
       s.locked = lockedRef.current;
       _fwd.set(0, 0, 1).applyQuaternion(s.q);
-      if (s.locked && !s.crashed && !s.keyboardFlying) {
+      if (touch && !photo) {
+        // on-screen stick flies the jet directly (see TOUCH_FLY in step); no aim point
+        s.aim.copy(_fwd);
+      } else if (s.locked && !s.crashed && !s.keyboardFlying) {
         s.aim.applyAxisAngle(WORLD_UP, dYaw);
         _aimAxis.crossVectors(s.aim, WORLD_UP);
         if (_aimAxis.lengthSq() > 1e-6) s.aim.applyAxisAngle(_aimAxis.normalize(), dPitch);
@@ -443,7 +489,7 @@ function F16Scene({
       }
     }
 
-    const abHeld = (k.has("ShiftLeft") || k.has("ShiftRight")) && s.throttle > 0.5 && !s.crashed;
+    const abHeld = (k.has("ShiftLeft") || k.has("ShiftRight") || virtualThrottle.ab) && s.throttle > 0.5 && !s.crashed;
     if (!photo) s.ab += ((abHeld ? 1 : 0) - s.ab) * Math.min(1, dt * 6);
 
     // ---- jet transform + control surfaces ----
@@ -523,6 +569,7 @@ function F16Scene({
       cam.position.y += (Math.random() - 0.5) * sh;
     } else {
       // the camera looks along the aim; the jet chases it through the frame
+      // (touch: the aim is the nose, so it simply follows behind)
       _camM.lookAt(s.aim, _v.set(0, 0, 0), WORLD_UP);
       _dq.setFromRotationMatrix(_camM);
       if (!s.camInit) {
@@ -556,7 +603,7 @@ function F16Scene({
     // ---- screen reticles: where the mouse aims (circle) and where the nose points (cross) ----
     {
       const r = reticle.current;
-      const showAim = started && !photo && !s.crashed && s.locked && !s.keyboardFlying;
+      const showAim = started && !photo && !s.crashed && !s.keyboardFlying && !touch && s.locked;
       cam.updateMatrixWorld();
       placeReticle(r?.aim ?? null, cam, s.aim, showAim);
       placeReticle(r?.nose ?? null, cam, _fwd, started && !photo && !s.crashed && !s.cockpit);
@@ -632,9 +679,14 @@ function F16Scene({
 
     function step(h: number) {
       const stt = st.current;
-      if (k.has("KeyW")) stt.throttle = Math.min(1, stt.throttle + 0.45 * h);
-      if (k.has("KeyS")) stt.throttle = Math.max(0, stt.throttle - 0.55 * h);
-      const abNow = (k.has("ShiftLeft") || k.has("ShiftRight")) && stt.throttle > 0.5;
+      if (virtualThrottle.value !== null) {
+        // on-screen lever: the lever is the throttle
+        stt.throttle += (virtualThrottle.value - stt.throttle) * Math.min(1, 6 * h);
+      } else {
+        if (k.has("KeyW")) stt.throttle = Math.min(1, stt.throttle + 0.45 * h);
+        if (k.has("KeyS")) stt.throttle = Math.max(0, stt.throttle - 0.55 * h);
+      }
+      const abNow = (k.has("ShiftLeft") || k.has("ShiftRight") || virtualThrottle.ab) && stt.throttle > 0.5;
 
       // stick: arrow keys fly directly; otherwise the mouse-aim autopilot does
       let sx = 0;
@@ -644,7 +696,42 @@ function F16Scene({
       if (k.has("ArrowUp")) sy += 1;
       if (k.has("ArrowDown")) sy -= 1;
       stt.keyboardFlying = sx !== 0 || sy !== 0;
-      if (!stt.keyboardFlying) {
+      if (touch && !stt.keyboardFlying) {
+        // on-screen stick: hold a bank angle and a climb angle (TOUCH_FLY)
+        _fwd.set(0, 0, 1).applyQuaternion(stt.q);
+        _up.set(0, 1, 0).applyQuaternion(stt.q);
+        _right.set(-1, 0, 0).applyQuaternion(stt.q);
+        const bank = Math.atan2(-_right.y, _up.y); // + = rolled right
+        const pitch = Math.asin(THREE.MathUtils.clamp(_fwd.y, -1, 1));
+        const vx = virtualStick.active ? virtualStick.x : 0;
+        const vy = virtualStick.active ? virtualStick.y : 0;
+        const tx = stickAxis(vx);
+        const ty = stickAxis(vy);
+        const bankRate = (bank - stt.lastBank) / h;
+        const pitchRate = THREE.MathUtils.clamp((pitch - stt.lastPitch) / h, -4, 4);
+        stt.lastBank = bank;
+        stt.lastPitch = pitch;
+        if (vy > TOUCH_FLY.rim) {
+          // rim, up: keep pulling round (bank is meaningless going vertical: just stop any roll)
+          sy = 1;
+          sx = -THREE.MathUtils.clamp(bankRate, -6, 6) * TOUCH_FLY.rollDamp;
+        } else {
+          const bankT = Math.abs(vx) > TOUCH_FLY.rim ? Math.sign(vx) * TOUCH_FLY.hardBank : tx * TOUCH_FLY.maxBank;
+          let bankErr = bankT - bank;
+          bankErr = Math.atan2(Math.sin(bankErr), Math.cos(bankErr));
+          sx = bankErr * TOUCH_FLY.rollGain - THREE.MathUtils.clamp(bankRate, -6, 6) * TOUCH_FLY.rollDamp;
+          const pitchT = vy < -TOUCH_FLY.rim ? -TOUCH_FLY.steepDive : ty * (ty > 0 ? TOUCH_FLY.climb : TOUCH_FLY.dive);
+          sy = ((pitchT - pitch) * TOUCH_FLY.pitchGain - pitchRate * TOUCH_FLY.pitchDamp) / Math.max(0.4, Math.cos(bank));
+          // rim, sideways: once it's banked over, pull hard — that's what makes the turn tight
+          if (Math.abs(vx) > TOUCH_FLY.rim) {
+            const w = THREE.MathUtils.smoothstep(Math.abs(bank), THREE.MathUtils.degToRad(50), THREE.MathUtils.degToRad(75));
+            sy += (Math.max(sy, TOUCH_FLY.hardPull) - sy) * w;
+          }
+          // upside down (coming out of a loop): no hard pull (it would aim at the ground) until the roll has the canopy up
+          if (Math.cos(bank) < -0.1) sy = THREE.MathUtils.clamp(sy, -0.2, 0.2);
+        }
+        stt.yawAuto = 0;
+      } else if (!stt.keyboardFlying) {
         _fwd.set(0, 0, 1).applyQuaternion(stt.q);
         _up.set(0, 1, 0).applyQuaternion(stt.q);
         _right.set(-1, 0, 0).applyQuaternion(stt.q);
@@ -831,8 +918,16 @@ export default function F16({ started }: { started: boolean }) {
     edge: false,
   });
   const photoMode = useMemo(() => readPhoto() !== null, []);
+  const touch = useIsTouch();
   const reticle = useRef<{ aim: HTMLDivElement | null; nose: HTMLDivElement | null }>({ aim: null, nose: null });
   const [locked, setLocked] = useState(false);
+  // touch: the how-to line only for the first seconds of play
+  const [hintGone, setHintGone] = useState(false);
+  useEffect(() => {
+    if (!started) return;
+    const t = setTimeout(() => setHintGone(true), 9000);
+    return () => clearTimeout(t);
+  }, [started]);
   useEffect(() => {
     const on = () => setLocked(!!document.pointerLockElement);
     document.addEventListener("pointerlockchange", on);
@@ -840,6 +935,7 @@ export default function F16({ started }: { started: boolean }) {
   }, []);
   // the 3D tree must not re-render with every HUD update (≈10×/s)
   const dpr = useCanvasDpr();
+  const frameloop = useSceneFrameloop();
   const scene = useMemo(() => <F16Scene started={started} onHud={setHud} reticle={reticle} />, [started, reticle]);
   return (
     <div className="absolute inset-0">
@@ -865,7 +961,7 @@ export default function F16({ started }: { started: boolean }) {
           </div>
         </div>
       </div>
-      <Canvas shadows="percentage" dpr={dpr} gl={CANVAS_GL} camera={{ fov: 62, near: 0.2, far: 4500 }}>
+      <Canvas shadows="percentage" frameloop={frameloop} dpr={dpr} gl={CANVAS_GL} resize={CANVAS_RESIZE} camera={{ fov: 62, near: 0.2, far: 4500 }}>
         {scene}
       </Canvas>
       <div className="absolute top-4 right-4 flex flex-col gap-2 items-end">
@@ -878,7 +974,8 @@ export default function F16({ started }: { started: boolean }) {
           sub={hud.afterburner ? "AFTERBURNER" : hud.stall ? "STALL!" : hud.g >= 4 ? `${hud.g.toFixed(1)} G` : undefined}
         />
         <HudStat label="İrtifa" value={`${hud.alt} m`} accent={hud.lowPass ? "#f97316" : "#6b6880"} sub={hud.lowPass ? "alçak uçuş bonusu" : undefined} />
-        <HudBar label="Gaz" value={hud.throttle} accent="#f97316" />
+        {/* touch: the throttle lever shows it */}
+        {!touch && <HudBar label="Gaz" value={hud.throttle} accent="#f97316" />}
       </div>
       {hud.bannerId > 0 && <HudBanner keyId={hud.bannerId} text={hud.bannerText} accent="#0ea5e9" />}
       <HudEdge show={started && !photoMode && !hud.crashed && hud.edge} text="Şehrin dışındasın, uçak geri dönüyor." />
@@ -887,14 +984,16 @@ export default function F16({ started }: { started: boolean }) {
           title="Çakıldın!"
           accent="#e11d48"
           lines={[`Skor: ${hud.score}`, "Otomatik yeniden başlatılıyor…"]}
-          hint="R: hemen başlat"
+          hint={touch ? "Sıfırla: hemen başlat" : "R: hemen başlat"}
           tone="danger"
         />
       )}
       {started && !photoMode && !hud.crashed && !locked && (
         <HudCenter text="Ekrana tıkla, fareyle nişan al: uçak beyaz halkaya döner. Esc ile bırak." />
       )}
-      {started && !photoMode && !hud.crashed && <HudHint text="C: kokpit · halkalar sokak aralarında · binalara dikkat" touchText="Ekranı sürükle: nişan al" />}
+      {started && !photoMode && !hud.crashed && (!touch || !hintGone) && (
+        <HudHint text="C: kokpit · halkalar sokak aralarında · binalara dikkat" touchText="Sol başparmak: yana it dön, yukarı it tırman · bırakınca düzelir · sağdaki kol gaz" />
+      )}
     </div>
   );
 }

@@ -6,8 +6,10 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import City from "./shared/City";
 import Car, { CarHandle } from "./shared/Car";
 import { generateCity, mulberry32, clampToPlayArea, distanceToEdge, BOUNDARY_WARN } from "./shared/cityGen";
-import { WorldAtmosphere, WorldEffects, CANVAS_GL, PRESETS, useCanvasDpr } from "./shared/World";
+import { WorldAtmosphere, WorldEffects, CANVAS_GL, CANVAS_RESIZE, PRESETS, useCanvasDpr, useSceneFrameloop } from "./shared/World";
 import { useKeys, makeEdge } from "./shared/useKeys";
+import { isTouchDevice, virtualSteer } from "./shared/input";
+import { useTouchPrefs } from "./shared/touchPrefs";
 import { stepDrift, TYRE, type DriftBody } from "./cars/driftPhysics";
 import Particles, { type ParticleHandle } from "./shared/Particles";
 import TireSmoke, { type SmokeHandle } from "./cars/TireSmoke";
@@ -34,6 +36,8 @@ const CAR_R = 1.0;
 const CORNER_MIN = 0.4;
 const CORNER_ZONE = 40;
 const LAP_BONUS = 1000;
+/** on-screen wheel response: steer = slide^WHEEL_EXPO */
+const WHEEL_EXPO = 1.6;
 
 const _tmp = new THREE.Vector3();
 const _tmp2 = new THREE.Vector3();
@@ -168,6 +172,7 @@ function DriftScene({ started, onHud }: { started: boolean; onHud: (h: Hud) => v
   );
 
   const keys = useKeys();
+  const touch = useMemo(() => isTouchDevice(), []);
   const edge = useMemo(() => makeEdge(), []);
   const car = useRef<CarHandle>(null);
   const smoke = useRef<SmokeHandle>(null);
@@ -230,6 +235,11 @@ function DriftScene({ started, onHud }: { started: boolean; onHud: (h: Hud) => v
     edge: false,
   });
 
+  // dev-only handle for headless tests
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "production") (window as unknown as { __drift?: unknown }).__drift = st.current;
+  }, []);
+
   const banner = (text: string, sub = "") => {
     const s = st.current;
     s.bannerId++;
@@ -276,6 +286,8 @@ function DriftScene({ started, onHud }: { started: boolean; onHud: (h: Hud) => v
     const cam = camera as THREE.PerspectiveCamera;
     const dt = Math.min(rawDt, 1 / 30);
     const k = keys.current;
+    // touch "Oto gaz": the car accelerates unless braking (touchPrefs)
+    const autoGas = touch && useTouchPrefs.getState().driftAutoGas;
     s.t += dt;
     if (started) s.playT += dt;
 
@@ -326,7 +338,7 @@ function DriftScene({ started, onHud }: { started: boolean; onHud: (h: Hud) => v
 
     // ---- car transform ----
     const g = car.current;
-    const throttle = started && (k.has("KeyW") || k.has("ArrowUp"));
+    const throttle = started && (k.has("KeyW") || k.has("ArrowUp") || (autoGas && !k.has("KeyS")));
     const hb = started && k.has("Space");
     if (g?.group) {
       g.group.position.set(rp.x, 0, rp.z);
@@ -539,9 +551,14 @@ function DriftScene({ started, onHud }: { started: boolean; onHud: (h: Hud) => v
       let bvR = stt.vel.x * rgtX + stt.vel.z * rgtZ;
 
       const handbrake = k.has("Space");
-      const gas = k.has("KeyW") || k.has("ArrowUp");
       const brake = k.has("KeyS") || k.has("ArrowDown");
-      const steerIn = (k.has("KeyA") || k.has("ArrowLeft") ? 1 : 0) - (k.has("KeyD") || k.has("ArrowRight") ? 1 : 0);
+      const gas = k.has("KeyW") || k.has("ArrowUp") || (autoGas && !brake);
+      // on-screen wheel: analog with an expo curve (small slides = fine corrections, a full
+      // slide still = full lock); right +, the model wants left +. Keyboard: full lock
+      const sv = virtualSteer.value;
+      const steerIn = virtualSteer.active
+        ? -Math.sign(sv) * Math.pow(Math.abs(sv), WHEEL_EXPO)
+        : (k.has("KeyA") || k.has("ArrowLeft") ? 1 : 0) - (k.has("KeyD") || k.has("ArrowRight") ? 1 : 0);
 
       // ---- tyre model (see cars/driftPhysics.ts) ----
       b.vF = bvF;
@@ -724,10 +741,11 @@ export default function Drift({ started }: { started: boolean }) {
 
   // the 3D tree must not re-render with every HUD update (≈10×/s)
   const dpr = useCanvasDpr();
+  const frameloop = useSceneFrameloop();
   const scene = useMemo(() => <DriftScene started={started} onHud={setHud} />, [started]);
   return (
     <div className="absolute inset-0">
-      <Canvas shadows="percentage" dpr={dpr} gl={CANVAS_GL} camera={{ fov: 62, near: 0.2, far: 3000, position: [-68, 3, 0] }}>
+      <Canvas shadows="percentage" frameloop={frameloop} dpr={dpr} gl={CANVAS_GL} resize={CANVAS_RESIZE} camera={{ fov: 62, near: 0.2, far: 3000, position: [-68, 3, 0] }}>
         {scene}
       </Canvas>
       {started && <NavArrow deg={hud.navDeg} label={`${gateLabel} · ${hud.navDist} m`} />}
@@ -769,7 +787,7 @@ export default function Drift({ started }: { started: boolean }) {
       {started && hud.tip && !hud.idle && (
         <HudHint
           text="Drift: 60+ km/h'de Space'e dokun ya da gazla direksiyonu kır · gazı bırak ya da karşı direksiyon ver, araç toparlar · R: son kapıya dön"
-          touchText="Drift: hızlıyken el freni · toparlamak için gazı bırak"
+          touchText="Drift: hızlıyken el freni + direksiyon · toparlamak için ters direksiyon"
         />
       )}
     </div>

@@ -5,8 +5,10 @@ import * as THREE from "three";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { mulberry32 } from "./shared/cityGen";
 import { useKeys, makeEdge } from "./shared/useKeys";
+import { virtualSteer } from "./shared/input";
+import { useIsTouch } from "./shared/useDevice";
 import Particles, { type ParticleHandle } from "./shared/Particles";
-import { WorldAtmosphere, WorldEffects, CANVAS_GL, useCanvasDpr } from "./shared/World";
+import { WorldAtmosphere, WorldEffects, CANVAS_GL, CANVAS_RESIZE, useCanvasDpr, useSceneFrameloop } from "./shared/World";
 import { HudStat, HudBanner, HudModal, HudBar, HudCenter } from "./shared/GameHud";
 import Highway, { LANE_W, LANES, ONCOMING_X, REBASE } from "./cars/Highway";
 import Cockpit from "./cars/Cockpit";
@@ -200,6 +202,14 @@ function TrafficScene({ started, onHud }: { started: boolean; onHud: (h: Hud) =>
   });
   const sim = useRef(world);
 
+  // dev-only handle for headless tests
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "production") {
+      (window as unknown as { __traffic?: unknown; __trafficSteer?: unknown }).__traffic = st.current;
+      (window as unknown as { __trafficSteer?: unknown }).__trafficSteer = steerVis;
+    }
+  }, []);
+
   const banner = (text: string) => {
     const s = st.current;
     s.bannerId++;
@@ -214,6 +224,10 @@ function TrafficScene({ started, onHud }: { started: boolean; onHud: (h: Hud) =>
     const dt = Math.min(rawDt, 1 / 30);
     const k = keys.current;
     s.t += dt;
+    // steering input: on-screen wheel (analog) or keys (full left / right)
+    const inX = virtualSteer.active
+      ? virtualSteer.value
+      : (k.has("KeyD") || k.has("ArrowRight") ? 1 : 0) - (k.has("KeyA") || k.has("ArrowLeft") ? 1 : 0);
 
     if (started) {
       s.acc += dt;
@@ -275,7 +289,8 @@ function TrafficScene({ started, onHud }: { started: boolean; onHud: (h: Hud) =>
 
     playerZ.current = s.pz;
     focus.current.set(s.px, 0, s.pz);
-    steerVis.current += (s.vx / 9 - steerVis.current) * Math.min(1, 10 * dt);
+    // the car's wheel shows the driver's hands (the input), like the on-screen wheel; the car follows
+    steerVis.current += ((started ? inX : 0) - steerVis.current) * Math.min(1, 25 * dt);
     kmhVis.current = s.speed * 3.6;
     // fake 6-speed gearbox for the rev counter
     const gearTop = [0, 14, 24, 34, 44, 54, 70];
@@ -529,7 +544,6 @@ function TrafficScene({ started, onHud }: { started: boolean; onHud: (h: Hud) =>
       else stt.speed = Math.max(0, stt.speed - 3 * h);
       if (stt.crashT > 0.8) stt.speed = Math.min(stt.speed, 14);
 
-      const inX = (k.has("KeyD") || k.has("ArrowRight") ? 1 : 0) - (k.has("KeyA") || k.has("ArrowLeft") ? 1 : 0);
       const agility = 7 + Math.min(4, stt.speed * 0.08);
       stt.vx += (inX * agility - stt.vx) * Math.min(1, 9 * h);
       stt.px += stt.vx * h;
@@ -599,12 +613,24 @@ export default function Traffic({ started }: { started: boolean }) {
     best: 0,
   });
 
+  // touch: the how-to line is for the first seconds only; it used to come back
+  // whenever the car slowed down (e.g. while holding the horn), which read as a glitch
+  const touch = useIsTouch();
+  const [introOver, setIntroOver] = useState(false);
+  useEffect(() => {
+    if (!started) return;
+    const t = setTimeout(() => setIntroOver(true), 5000);
+    return () => clearTimeout(t);
+  }, [started]);
+  const showHint = started && (touch ? !introOver : hud.score === 0 && hud.speed < 25);
+
   // the 3D tree must not re-render with every HUD update (≈10×/s)
   const dpr = useCanvasDpr();
+  const frameloop = useSceneFrameloop();
   const scene = useMemo(() => <TrafficScene started={started} onHud={setHud} />, [started]);
   return (
     <div className="absolute inset-0">
-      <Canvas shadows="percentage" dpr={dpr} gl={CANVAS_GL} camera={{ fov: 66, near: 0.05, far: 3000 }}>
+      <Canvas shadows="percentage" frameloop={frameloop} dpr={dpr} gl={CANVAS_GL} resize={CANVAS_RESIZE} camera={{ fov: 66, near: 0.05, far: 3000 }}>
         {scene}
       </Canvas>
       <div className="absolute top-4 right-4 flex flex-col gap-2 items-end">
@@ -615,8 +641,11 @@ export default function Traffic({ started }: { started: boolean }) {
       </div>
       {hud.bannerId > 0 && <HudBanner keyId={hud.bannerId} text={hud.bannerText} accent={ACCENT} />}
       {hud.crashed && <HudModal title="Çarptın!" accent="#e11d48" lines={["Kombo sıfırlandı, hız düştü"]} tone="danger" />}
-      {started && hud.score === 0 && hud.speed < 25 && (
-        <HudCenter text="W: gaz · A/D: şerit · Shift: nitro · F: selektör · H: korna · Arabalara yakın geç, çarpma!" />
+      {showHint && (
+        <HudCenter
+          text="W: gaz · A/D: şerit · Shift: nitro · F: selektör · H: korna · Arabalara yakın geç, çarpma!"
+          touchText="Gaz pedalına bas, direksiyonla arabaların dibinden geç"
+        />
       )}
     </div>
   );

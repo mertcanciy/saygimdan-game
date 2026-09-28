@@ -3,6 +3,8 @@
 // a lowpass, gated by a fast attack / release envelope. The AudioContext is
 // created lazily on first use (after a user gesture) and closed on dispose.
 
+import { keepAudioContextUnlocked } from "../shared/input";
+
 type Ctx = AudioContext;
 
 class HornVoice {
@@ -93,6 +95,7 @@ export class CarHorn {
   private main: HornVoice | null = null;
   private other: HornVoice | null = null;
   private held = false;
+  private unlock: (() => void) | null = null;
 
   private ensure(): Ctx | null {
     if (this.ctx) return this.ctx;
@@ -111,6 +114,7 @@ export class CarHorn {
     // other drivers: lower, duller, quieter, from behind-left
     this.other = new HornVoice(ctx, master, 338, 404, 0.07, -0.25, 1500);
     this.ctx = ctx;
+    this.unlock = keepAudioContextUnlocked(ctx);
     return ctx;
   }
 
@@ -146,6 +150,8 @@ export class CarHorn {
     this.other?.stop();
     this.main = this.other = null;
     this.held = false;
+    this.unlock?.();
+    this.unlock = null;
     const ctx = this.ctx;
     this.ctx = null;
     if (ctx) void ctx.close();

@@ -1,185 +1,73 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import { Pause, Play, Volume2, VolumeX } from "lucide-react";
-import { MUSIC } from "@/lib/music";
-import { useMusicStore } from "@/lib/store";
+import { music, useMusicStore } from "@/lib/musicEngine";
 import { useIsTouch } from "@/components/games/shared/useDevice";
-
-declare global {
-  interface Window {
-    YT?: {
-      Player: new (el: HTMLElement, opts: Record<string, unknown>) => YTPlayer;
-    };
-    onYouTubeIframeAPIReady?: () => void;
-  }
-}
-
-interface YTPlayer {
-  playVideo: () => void;
-  pauseVideo: () => void;
-  setVolume: (v: number) => void;
-  seekTo?: (s: number, allow: boolean) => void;
-}
-
-type Mode = "idle" | "loading" | "audio" | "youtube" | "missing";
 
 /**
  * The song, always within reach. Mounted once in the root layout so it keeps
  * playing while you move from the landing page to the games and back.
- * Local mp3 (public/audio/saygimdan.mp3) first, YouTube as fallback.
+ * The player itself is lib/musicEngine.ts; this is its remote control.
  */
 export default function SongDock() {
-  const started = useMusicStore((s) => s.started);
-  const start = useMusicStore((s) => s.start);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const ytRef = useRef<YTPlayer | null>(null);
-  const ytContainerRef = useRef<HTMLDivElement | null>(null);
-  const [mode, setMode] = useState<Mode>("idle");
-  const [playing, setPlaying] = useState(false);
-  const setStorePlaying = useMusicStore((s) => s.setPlaying);
-  // let the rest of the site (the landing's record) know whether the song is on
-  useEffect(() => setStorePlaying(playing), [playing, setStorePlaying]);
-  const [volume, setVolume] = useState(0.8);
-  const [muted, setMuted] = useState(false);
-  const volRef = useRef(volume);
+  const { started, playing, mode, blocked, volume, muted, toggle, setVolume, setMuted } = useMusicStore();
   // in-game on a phone the corners belong to the thumbs: shrink to a small round button between them
   const pathname = usePathname();
   const touch = useIsTouch();
   const inGame = pathname.startsWith("/play");
   const compact = touch && inGame;
-  const initRef = useRef(false);
 
+  // Build the player before anyone presses play, so the press itself can start
+  // it synchronously. Game pages: right away. Elsewhere: on the first
+  // interaction (no YouTube download for visitors who only look).
   useEffect(() => {
-    if (!started || initRef.current) return;
-    initRef.current = true;
-    const cancelled = false;
-    setMode("loading");
-
-    const init = async () => {
-      try {
-        const res = await fetch(MUSIC.mp3, { method: "HEAD" });
-        const type = res.headers.get("content-type") ?? "";
-        if (res.ok && type.startsWith("audio")) {
-          if (cancelled) return;
-          const audio = new Audio(MUSIC.mp3);
-          audio.loop = true;
-          audio.volume = volRef.current;
-          audioRef.current = audio;
-          setMode("audio");
-          audio
-            .play()
-            .then(() => setPlaying(true))
-            .catch(() => setPlaying(false));
-          return;
-        }
-      } catch {
-        // fall through to YouTube
-      }
-
-      if (!MUSIC.youtubeId) {
-        if (!cancelled) setMode("missing");
-        return;
-      }
-      const createPlayer = () => {
-        if (cancelled || !window.YT || !ytContainerRef.current) return;
-        ytRef.current = new window.YT.Player(ytContainerRef.current, {
-          width: "1",
-          height: "1",
-          videoId: MUSIC.youtubeId,
-          playerVars: {
-            loop: 1,
-            playlist: MUSIC.youtubeId,
-            autoplay: 1,
-            controls: 0,
-            disablekb: 1,
-            playsinline: 1,
-          },
-          events: {
-            onReady: () => {
-              ytRef.current?.setVolume(Math.round(volRef.current * 100));
-              ytRef.current?.playVideo();
-            },
-            onStateChange: (e: { data: number }) => {
-              // 0 ended → loop, 1 playing, 2 paused
-              if (e.data === 0) {
-                ytRef.current?.seekTo?.(0, true);
-                ytRef.current?.playVideo();
-              } else if (e.data === 1) setPlaying(true);
-              else if (e.data === 2) setPlaying(false);
-            },
-          },
-        });
-        setMode("youtube");
-      };
-      if (window.YT?.Player) createPlayer();
-      else {
-        const prev = window.onYouTubeIframeAPIReady;
-        window.onYouTubeIframeAPIReady = () => {
-          prev?.();
-          createPlayer();
-        };
-        if (!document.querySelector('script[src="https://www.youtube.com/iframe_api"]')) {
-          const tag = document.createElement("script");
-          tag.src = "https://www.youtube.com/iframe_api";
-          document.body.appendChild(tag);
-        }
-      }
-    };
-
-    // the dock lives in the root layout and never unmounts, so no cancellation
-    // (a cleanup here would also break React's dev double-invoke)
-    init();
-  }, [started]);
-
-  useEffect(() => {
-    const v = muted ? 0 : volume;
-    volRef.current = v;
-    if (audioRef.current) audioRef.current.volume = v;
-    try {
-      ytRef.current?.setVolume(Math.round(v * 100));
-    } catch {
-      /* player not ready yet */
-    }
-  }, [volume, muted]);
-
-  const toggle = () => {
-    if (!started) {
-      start();
+    if (inGame) {
+      void music.prepare();
       return;
     }
-    if (mode === "audio" && audioRef.current) {
-      if (playing) {
-        audioRef.current.pause();
-        setPlaying(false);
-      } else {
-        audioRef.current
-          .play()
-          .then(() => setPlaying(true))
-          .catch(() => setPlaying(false));
-      }
-    } else if (mode === "youtube" && ytRef.current) {
-      if (playing) {
-        ytRef.current.pauseVideo();
-        setPlaying(false);
-      } else {
-        ytRef.current.playVideo();
-        setPlaying(true);
-      }
-    }
-  };
+    const go = () => void music.prepare();
+    const evs = ["pointerdown", "keydown", "scroll"] as const;
+    evs.forEach((e) => window.addEventListener(e, go, { once: true, passive: true }));
+    return () => evs.forEach((e) => window.removeEventListener(e, go));
+  }, [inGame]);
+
+  // the browser refused to start YouTube for us: put the (invisible) player
+  // itself under the play button, so the tap goes straight to YouTube
+  const playBtn = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!blocked || mode !== "youtube") return;
+    const place = () => {
+      const b = playBtn.current;
+      if (b) music.setTapTarget(b.getBoundingClientRect());
+    };
+    // after the dock's own layout transition settles
+    const t = setTimeout(place, 50);
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, { passive: true });
+    return () => {
+      clearTimeout(t);
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place);
+      music.setTapTarget(null);
+    };
+  }, [blocked, mode, compact]);
 
   const status =
-    mode === "idle"
-      ? "Dinlemek için bas"
-      : mode === "loading"
-        ? "Yükleniyor"
-        : mode === "missing"
-          ? "Şarkı dosyası bulunamadı"
+    mode === "missing"
+      ? "Şarkı dosyası bulunamadı"
+      : mode === "error"
+        ? "Yüklenemedi, tekrar dene"
+        : blocked
+          ? "Başlatmak için dokun"
           : playing
             ? "Çalıyor, başa sarar"
-            : "Durdu";
+            : !started
+              ? "Dinlemek için bas"
+              : mode === "loading"
+                ? "Yükleniyor"
+                : "Durdu";
 
   return (
     <div
@@ -188,29 +76,33 @@ export default function SongDock() {
         inGame ? "" : "backdrop-blur"
       } ${
         compact
-          ? // portrait: the bottom edge is all thumbs, so park it on the right above the button arc
-            "bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 gap-0 bg-paper/90 p-1 shadow-[0_6px_18px_-10px_rgba(0,0,0,0.4)] narrow:bottom-[calc(max(1.5rem,env(safe-area-inset-bottom))+14rem)] narrow:left-auto narrow:right-[max(1rem,env(safe-area-inset-right))] narrow:translate-x-0"
+          ? // portrait with the thumb controls up (PlayShell sets data-touch-controls): the bottom
+            // edge is all thumbs, so park it on the right above the right-hand controls
+            "bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 gap-0 bg-paper/90 p-1 shadow-[0_6px_18px_-10px_rgba(0,0,0,0.4)] [[data-touch-controls]_&]:narrow:bottom-[calc(max(1.5rem,env(safe-area-inset-bottom))+15.5rem)] [[data-touch-controls]_&]:narrow:left-auto [[data-touch-controls]_&]:narrow:right-[max(1rem,env(safe-area-inset-right))] [[data-touch-controls]_&]:narrow:translate-x-0"
           : "bottom-4 right-4 gap-3 bg-paper/95 py-1.5 pl-1.5 pr-4 shadow-[0_10px_30px_-12px_rgba(0,0,0,0.25)] narrow:bottom-3 narrow:right-3 narrow:gap-2.5 narrow:pr-3.5"
       }`}
       role="region"
       aria-label="Şarkı çalar"
     >
-      <div ref={ytContainerRef} className="pointer-events-none absolute h-px w-px overflow-hidden opacity-0" />
+      {/* the browser refused to start the song on its own: say what to do, right where to do it */}
+      {(blocked || mode === "error") && compact && (
+        <span className="pointer-events-none absolute bottom-full left-1/2 mb-2 -translate-x-1/2 whitespace-nowrap rounded-full bg-ink px-3 py-1.5 text-[12.5px] font-semibold text-paper shadow-[0_6px_18px_-8px_rgba(0,0,0,0.5)] animate-fade-up [[data-touch-controls]_&]:narrow:left-auto [[data-touch-controls]_&]:narrow:right-0 [[data-touch-controls]_&]:narrow:translate-x-0">
+          {mode === "error" ? "Şarkı yüklenemedi, dokun" : "Şarkı için dokun"}
+        </span>
+      )}
 
       <button
+        ref={playBtn}
         type="button"
         onClick={toggle}
-        disabled={mode === "loading" || mode === "missing"}
+        disabled={mode === "missing"}
         aria-label={playing ? "Duraklat" : "Çal"}
         className={`relative grid shrink-0 place-items-center rounded-full bg-red text-paper transition-[transform,background-color] hover:bg-red-deep active:scale-95 disabled:opacity-60 ${
-          compact ? "size-9" : "size-10"
+          compact ? "size-11" : "size-10"
         }`}
       >
-        {playing ? (
-          <Pause className={`fill-current ${compact ? "size-3.5" : "size-4"}`} />
-        ) : (
-          <Play className={`translate-x-px fill-current ${compact ? "size-3.5" : "size-4"}`} />
-        )}
+        {blocked && <span aria-hidden className="absolute inset-0 animate-ping rounded-full bg-red/60" />}
+        {playing ? <Pause className="relative size-4 fill-current" /> : <Play className="relative size-4 translate-x-px fill-current" />}
       </button>
 
       <div className={`h-4 items-end gap-[3px] ${compact ? "hidden" : "flex"}`} aria-hidden>
@@ -229,14 +121,14 @@ export default function SongDock() {
 
       <div className={`min-w-0 leading-tight ${compact ? "hidden" : ""}`}>
         <div className="text-[13px] font-semibold tracking-[-0.01em] whitespace-nowrap">Bengü, Saygımdan</div>
-        <div className="text-[11.5px] text-muted-ink whitespace-nowrap">{status}</div>
+        <div className={`text-[11.5px] whitespace-nowrap ${blocked || mode === "error" ? "font-semibold text-red" : "text-muted-ink"}`}>{status}</div>
       </div>
 
       {!compact && (mode === "audio" || mode === "youtube") && (
         <div className="hidden sm:flex items-center gap-2 pl-1">
           <button
             type="button"
-            onClick={() => setMuted((m) => !m)}
+            onClick={() => setMuted(!muted)}
             aria-label={muted ? "Sesi aç" : "Sessize al"}
             className="grid size-8 place-items-center rounded-full hover:bg-soft"
           >
@@ -248,10 +140,7 @@ export default function SongDock() {
             max={1}
             step={0.01}
             value={muted ? 0 : volume}
-            onChange={(e) => {
-              setMuted(false);
-              setVolume(Number(e.target.value));
-            }}
+            onChange={(e) => setVolume(Number(e.target.value))}
             aria-label="Ses seviyesi"
             className="h-1 w-20 cursor-pointer accent-[#0a0a0a]"
           />

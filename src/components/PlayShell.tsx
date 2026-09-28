@@ -1,14 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Maximize2, Minimize2 } from "lucide-react";
 import { GameInfo } from "@/lib/games";
-import { useHydrated, useMusicStore, useUserStore } from "@/lib/store";
+import { useHydrated, useUserStore } from "@/lib/store";
+import { music } from "@/lib/musicEngine";
 import { GAME_COMPONENTS } from "@/components/games";
 import TouchControls, { TOUCH_HELP } from "@/components/games/shared/TouchControls";
 import { useIsPortrait, useIsTouch } from "@/components/games/shared/useDevice";
+import { measureDisplayHz } from "@/components/games/shared/input";
+import { setSceneHold } from "@/components/games/shared/World";
+import { recordingRequested, shareTouchRecording, startTouchRecording, touchRecordingSize } from "@/components/games/shared/touchRecorder";
+
+const noop = () => () => {};
 import { Keys, Pill } from "@/components/site/Chrome";
 
 function canFullscreen() {
@@ -29,17 +35,57 @@ export default function PlayShell({ game }: { game: GameInfo }) {
   const router = useRouter();
   const user = useUserStore((s) => s.user);
   const hydrated = useHydrated();
-  const startMusic = useMusicStore((s) => s.start);
   const touch = useIsTouch();
   const portrait = useIsPortrait();
-  const [started, setStarted] = useState(false);
+  // start sheet → playing ⇄ paused (touch: back gesture / app in background)
+  const [phase, setPhase] = useState<"start" | "play" | "paused">("start");
+  const started = phase === "play";
+  const [hzReady, setHzReady] = useState(false);
+  // real-device testing: ?rec=1 records the touches (see touchRecorder.ts)
+  const recording = useSyncExternalStore(noop, recordingRequested, () => false);
+  const recStarted = useRef(false);
+  useEffect(() => {
+    if (!recording || phase !== "play" || recStarted.current) return;
+    recStarted.current = true;
+    startTouchRecording(game.slug);
+  }, [recording, phase, game.slug]);
   const [showControls, setShowControls] = useState(false);
   const [portraitOk, setPortraitOk] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
+  const userLeftFullscreen = useRef(false);
+  const hold = phase === "paused" || (phase === "play" && touch && portrait && !portraitOk);
 
   useEffect(() => {
     if (hydrated && !user) router.replace("/#giris");
   }, [hydrated, user, router]);
+
+  useEffect(() => {
+    setSceneHold(hold);
+  }, [hold]);
+
+  useEffect(() => () => setSceneHold(false), []);
+
+  // before the 3D scene loads, while frames are still cheap (see World.tsx adaptive quality)
+  useEffect(() => {
+    let alive = true;
+    void measureDisplayHz().then(() => {
+      if (alive) setHzReady(true);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // the song dock (root layout) moves out of the thumbs' way while touch controls are up
+  const controlsUp = started && touch;
+  useEffect(() => {
+    if (!controlsUp) return;
+    const html = document.documentElement;
+    html.dataset.touchControls = "";
+    return () => {
+      delete html.dataset.touchControls;
+    };
+  }, [controlsUp]);
 
   useEffect(() => {
     const on = () => setFullscreen(!!document.fullscreenElement);
@@ -47,27 +93,82 @@ export default function PlayShell({ game }: { game: GameInfo }) {
     return () => document.removeEventListener("fullscreenchange", on);
   }, []);
 
+  /*
+   * Touch, while playing: the edge swipe (iOS Safari) / back gesture (Android)
+   * is easy to trigger by accident with a thumb on the left controls, and it
+   * used to leave the game. A same-URL history entry catches it: the first
+   * "back" pauses, a second one really goes back. Also pause when the app goes
+   * to the background, so coming back doesn't drop you into a crash.
+   */
+  useEffect(() => {
+    if (!touch || phase !== "play") return;
+    // keeps Next.js' own history state (its patched pushState passes __NA entries through)
+    window.history.pushState({ ...window.history.state, saygimdanPause: true }, "");
+    let popped = false;
+    const onPop = () => {
+      popped = true;
+      setPhase("paused");
+    };
+    const onHide = () => {
+      if (document.visibilityState === "hidden") setPhase("paused");
+    };
+    const onFullscreenChange = () => {
+      if (document.fullscreenElement) {
+        userLeftFullscreen.current = false;
+        return;
+      }
+      if (userLeftFullscreen.current) {
+        userLeftFullscreen.current = false;
+        return;
+      }
+      setPhase("paused");
+    };
+    window.addEventListener("popstate", onPop);
+    document.addEventListener("visibilitychange", onHide);
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+    return () => {
+      window.removeEventListener("popstate", onPop);
+      document.removeEventListener("visibilitychange", onHide);
+      document.removeEventListener("fullscreenchange", onFullscreenChange);
+      // paused some other way: drop the guard entry again (unless the page is going away)
+      if (!popped && window.history.state?.saygimdanPause && window.location.pathname === `/play/${game.slug}`) window.history.back();
+    };
+  }, [touch, phase, game.slug]);
+
   const GameComponent = GAME_COMPONENTS[game.slug];
 
   const begin = () => {
-    startMusic();
-    setStarted(true);
+    // first, and synchronously: phones only allow sound to start inside the tap
+    // itself (and requesting fullscreen can use the tap up)
+    music.playUnlessPaused();
+    setPhase("play");
     if (touch) void enterLandscapeFullscreen();
   };
 
   const toggleFullscreen = () => {
-    if (document.fullscreenElement) void document.exitFullscreen();
-    else void enterLandscapeFullscreen();
+    if (document.fullscreenElement) {
+      userLeftFullscreen.current = true;
+      void document.exitFullscreen();
+    } else {
+      userLeftFullscreen.current = false;
+      void enterLandscapeFullscreen();
+    }
   };
 
   return (
     <main className="relative h-dvh w-full touch-none overflow-hidden overscroll-none bg-[#c9d4de] select-none">
-      {hydrated && user && <GameComponent started={started} />}
+      {hydrated && user && hzReady && <GameComponent started={started} />}
 
       {/* top-left: way back + where you are (compact on phones) */}
       <div className="absolute left-[max(1rem,env(safe-area-inset-left))] top-4 z-30 flex items-center gap-2 short:left-[max(0.75rem,env(safe-area-inset-left))] short:top-[max(0.625rem,env(safe-area-inset-top))] short:gap-1.5 narrow:gap-1.5">
         <Link
           href="/games"
+          onClick={(e) => {
+            if (touch && phase === "play" && window.history.state?.saygimdanPause) {
+              e.preventDefault();
+              router.replace("/games");
+            }
+          }}
           aria-label="Oyunlara dön"
           className="inline-flex h-10 items-center gap-2 rounded-full border border-line bg-paper/95 pl-3 pr-4 text-[14px] font-medium text-ink hover:border-ink short:size-9 short:justify-center short:p-0 narrow:size-9 narrow:justify-center narrow:p-0"
         >
@@ -85,6 +186,17 @@ export default function PlayShell({ game }: { game: GameInfo }) {
             className="grid size-10 place-items-center rounded-full border border-line bg-paper/95 text-ink short:size-9 narrow:size-9"
           >
             {fullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
+          </button>
+        )}
+        {recording && started && (
+          // recording on: tap to pause and share the recording
+          <button
+            type="button"
+            onClick={() => setPhase("paused")}
+            className="inline-flex h-9 items-center gap-1.5 rounded-full bg-paper/95 px-3 text-[12.5px] font-semibold text-ink"
+          >
+            <span aria-hidden className="size-2 animate-pulse rounded-full bg-red" />
+            Kayıt
           </button>
         )}
       </div>
@@ -105,13 +217,22 @@ export default function PlayShell({ game }: { game: GameInfo }) {
         </div>
       )}
 
-      {/* start sheet (landscape phones: two columns so it fits without scrolling) */}
+      {/* start / pause sheet (landscape phones: two columns so it fits without scrolling) */}
       {!started && (
-        <div className="absolute inset-0 z-30 flex items-end overflow-y-auto bg-paper/55 backdrop-blur-[6px] sm:items-center short:items-center">
+        <div
+          className={`absolute inset-0 z-30 flex items-end overflow-y-auto sm:items-center short:items-center ${
+            // phones: no live blur over the canvas (costly there, and the quality check already runs behind this sheet)
+            touch ? "bg-paper/75" : "bg-paper/55 backdrop-blur-[6px]"
+          }`}
+        >
           <div className="mx-auto w-full max-w-[1180px] px-4 pb-24 pt-20 sm:px-10 sm:pb-0 short:px-[max(1rem,env(safe-area-inset-left))] short:py-3 short:pt-14">
             <div className="max-w-[34rem] rounded-[28px] bg-paper p-7 shadow-[0_30px_80px_-30px_rgba(0,0,0,0.35)] sm:p-10 short:mx-auto short:grid short:max-w-[46rem] short:grid-cols-[1fr_1.05fr] short:gap-x-7 short:rounded-[22px] short:p-5 narrow:p-6 animate-fade-up">
               <div>
-                <p className="text-[15px] text-muted-ink short:hidden">{game.subtitle}</p>
+                {phase === "paused" ? (
+                  <p className="text-[15px] font-semibold text-red short:text-[13px]">Oyun duraklatıldı</p>
+                ) : (
+                  <p className="text-[15px] text-muted-ink short:hidden">{game.subtitle}</p>
+                )}
                 <h1 className="display mt-2 text-[clamp(3.2rem,7vw,5.5rem)] short:mt-0 short:text-[clamp(2rem,9dvh,2.6rem)] narrow:text-[2.9rem]">{game.title}</h1>
                 <p className="mt-5 text-[16px] leading-[1.55] text-ink short:mt-2 short:text-[13.5px] short:leading-[1.45] narrow:mt-4 narrow:text-[15px]">{game.description}</p>
                 <p className="mt-3 text-[15px] leading-[1.55] text-muted-ink short:hidden narrow:text-[14px]">{game.goal}</p>
@@ -129,10 +250,25 @@ export default function PlayShell({ game }: { game: GameInfo }) {
                 ) : (
                   <ControlsList game={game} className="mt-6 short:mt-0" />
                 )}
-                <div className="mt-8 short:mt-3 narrow:mt-6">
+                <div className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-3 short:mt-3 narrow:mt-6">
                   <Pill play onClick={begin} small={touch}>
-                    Başlat
+                    {phase === "paused" ? "Devam et" : "Başlat"}
                   </Pill>
+                  {phase === "paused" && (
+                    <Link href="/games" className="inline-flex min-h-11 items-center text-[15px] font-medium text-ink underline underline-offset-4">
+                      Oyunlardan çık
+                    </Link>
+                  )}
+                  {phase === "paused" && recording && (
+                    <button
+                      type="button"
+                      onClick={() => void shareTouchRecording()}
+                      className="inline-flex min-h-11 items-center gap-2 text-[15px] font-medium text-ink underline underline-offset-4"
+                    >
+                      <span aria-hidden className="size-2 rounded-full bg-red" />
+                      Dokunuş kaydını paylaş ({touchRecordingSize()} örnek)
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
