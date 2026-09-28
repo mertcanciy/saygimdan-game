@@ -23,6 +23,7 @@ src/app/
   page.tsx                açılış + giriş (isim/e-posta)
   games/page.tsx          oyun listesi
   play/[slug]/page.tsx    oyun sayfası (generateStaticParams, oyun viewport'u)
+  manifest.ts             PWA: ad, /games açılışı, tam ekran, ikonlar (public/icons/); apple-icon.png, favicon.ico = plak
 src/lib/
   games.ts                oyun kaydı: GameSlug, başlık, açıklama, kontroller, renk
   store.ts                Zustand: kullanıcı (persist); useMusicStore'u musicEngine'den verir
@@ -31,7 +32,7 @@ src/lib/
 src/components/
   PlayShell.tsx           oyun kabuğu: Başlat ekranı, geri/tam ekran, dokunmatik/klavye yardım
   SongDock.tsx            şarkı çaların kumandası (UI); oynatıcıyı önceden hazırlar
-  site/                   site UI (Chrome, plak, kapak görselleri)
+  site/                   site UI (Chrome, plak, kapak görselleri, InstallHint: iPhone'a "Ana ekrana ekle" ipucu)
   games/
     index.ts              slug → oyun bileşeni (dynamic, ssr:false)
     Spiderman.tsx Drift.tsx F16.tsx Traffic.tsx   her oyun tek dosya: sahne + fizik + HUD
@@ -85,6 +86,11 @@ public/models/ (spiderman.glb) · public/covers/<slug>.jpg (oyun kapakları)
 - N8AO'nun transparency-aware modunu açma (sahneyi 2 kez fazladan çizer).
 - Gizli başlayan efektler shader ısıtmasına otomatik girer (`World.tsx` → `useWarmUp`); ayrıca bir şey gerekmez.
 - Sık değişen instanced buffer'larda sadece değişen aralığı yükle (`addUpdateRange`).
+
+## PWA
+- Yüklenebilir uygulama: `app/manifest.ts` + ikonlar yeterli (service worker yok, offline yok; şarkı zaten internet istiyor). Kurulumu test etmek HTTPS ister (yerel `http://192.168…` adresinde telefon "Ana ekrana ekle"yi tam desteklemez) → Vercel önizleme.
+- iPhone'da ana ekrandan açılan uygulama Safari'nin localStorage'ını görmez: kullanıcı ilk açışta adını tekrar girer.
+- Yüklü uygulama tam ekran çalışırken (`display-mode: fullscreen`) oyundaki tam ekran düğmesi gizlenir.
 
 ## Mobil / test
 - `?touch=1` / `?touch=0`: dokunmatik arayüzü zorla. Drift/Makas'ta `?cam=` debug kameraları.
