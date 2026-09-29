@@ -29,6 +29,7 @@ import { HeroAnimator, Mode, type AnimInput } from "./spiderman/heroAnim";
 import { WebRibbon } from "./spiderman/webLine";
 import { WebSplats } from "./spiderman/webSplat";
 import { facePlane, faceHalf, faceCenterU, nearestFace, volumeAt, type Face } from "./spiderman/wall";
+import { trackScore } from "@/lib/sessionScore";
 
 const ACCENT = getGame("spiderman")!.accent;
 const GRAV = 25;
@@ -1610,6 +1611,8 @@ export default function Spiderman({ started }: { started: boolean }) {
   // the 3D tree must not re-render with every HUD update (≈10×/s)
   const dpr = useCanvasDpr();
   const frameloop = useSceneFrameloop();
+  // leaderboard: points earned this visit (lib/sessionScore.ts)
+  useEffect(() => trackScore(hud.score), [hud.score]);
   const scene = useMemo(() => <SpidermanScene started={started} onHud={setHud} />, [started]);
   return (
     <div className="absolute inset-0">

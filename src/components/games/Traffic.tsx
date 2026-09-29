@@ -18,6 +18,7 @@ import { buildCar, type CarType } from "./cars/carGeometry";
 import { beamTexture, TRAFFIC_PAINTS } from "./cars/carMaterials";
 import { CarHorn } from "./cars/horn";
 import { getGame } from "@/lib/games";
+import { trackScore } from "@/lib/sessionScore";
 
 const ACCENT = getGame("traffic")!.accent;
 const SUB = 1 / 120;
@@ -627,6 +628,8 @@ export default function Traffic({ started }: { started: boolean }) {
   // the 3D tree must not re-render with every HUD update (≈10×/s)
   const dpr = useCanvasDpr();
   const frameloop = useSceneFrameloop();
+  // leaderboard: points earned this visit (lib/sessionScore.ts)
+  useEffect(() => trackScore(hud.score), [hud.score]);
   const scene = useMemo(() => <TrafficScene started={started} onHud={setHud} />, [started]);
   return (
     <div className="absolute inset-0">
