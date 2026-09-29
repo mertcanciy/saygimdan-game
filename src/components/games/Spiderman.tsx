@@ -29,6 +29,7 @@ import { HeroAnimator, Mode, type AnimInput } from "./spiderman/heroAnim";
 import { WebRibbon } from "./spiderman/webLine";
 import { WebSplats } from "./spiderman/webSplat";
 import { facePlane, faceHalf, faceCenterU, nearestFace, volumeAt, type Face } from "./spiderman/wall";
+import { useReportScore } from "@/lib/scores";
 
 const ACCENT = getGame("spiderman")!.accent;
 const GRAV = 25;
@@ -1607,6 +1608,7 @@ export default function Spiderman({ started }: { started: boolean }) {
     place: 0,
     wallHint: false,
   });
+  useReportScore("spiderman", hud.score);
   // the 3D tree must not re-render with every HUD update (≈10×/s)
   const dpr = useCanvasDpr();
   const frameloop = useSceneFrameloop();

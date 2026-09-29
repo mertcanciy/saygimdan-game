@@ -10,7 +10,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 # Proje: Saygımdan
 
-Şarkı çalarken oynanan 4 tarayıcı oyunu. Next.js 16 (App Router), React 19, TypeScript, Tailwind v4, three + @react-three/fiber + drei + @react-three/postprocessing, Zustand. Backend yok (kullanıcı `localStorage`'da).
+Şarkı çalarken oynanan 4 tarayıcı oyunu. Next.js 16 (App Router), React 19, TypeScript, Tailwind v4, three + @react-three/fiber + drei + @react-three/postprocessing, Zustand. Küçük bir backend var: `src/app/api/*` (kullanıcı adı + 4 haneli PIN girişi, skorlar, liderlik tablosu). Veri üretimde Upstash Redis'te (`KV_REST_API_URL`/`KV_REST_API_TOKEN` veya `UPSTASH_REDIS_REST_URL`/`UPSTASH_REDIS_REST_TOKEN`), bu değişkenler yoksa lokalde `.data/db.json`'da.
 
 ## Komutlar
 - `npm run dev` · `npm run build` · `npm run lint` (test altyapısı yok; doğrulama = lint + build + tarayıcıda deneme)
@@ -20,7 +20,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 ```
 src/app/
   layout.tsx              kök layout: SongDock (şarkı), Vercel Analytics
-  page.tsx                açılış + giriş (isim/e-posta)
+  page.tsx                açılış + liderlik özeti (giriş `AuthDialog` popup'ında)
   games/page.tsx          oyun listesi
   play/[slug]/page.tsx    oyun sayfası (generateStaticParams, oyun viewport'u)
   manifest.ts             PWA: ad, /games açılışı, tam ekran, ikonlar (public/icons/); apple-icon.png, favicon.ico = plak

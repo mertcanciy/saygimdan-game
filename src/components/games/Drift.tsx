@@ -23,6 +23,7 @@ import TrackProps, { type CarProbe } from "./drift/Track";
 import Plaza, { MASTS } from "./drift/Plaza";
 import SkidMarks, { type SkidEmit } from "./drift/SkidMarks";
 import { getGame } from "@/lib/games";
+import { useReportScore } from "@/lib/scores";
 
 const ACCENT = getGame("drift")!.accent;
 const SUB = 1 / 120;
@@ -737,6 +738,7 @@ function NavArrow({ deg, label }: { deg: number; label: string }) {
 
 export default function Drift({ started }: { started: boolean }) {
   const [hud, setHud] = useState<Hud>(HUD0);
+  useReportScore("drift", hud.total);
   const gateLabel = hud.gate === 0 ? (hud.lap === 0 && hud.lapTime === 0 ? "Başlangıç" : "Bitiş") : `Kapı ${hud.gate}/${hud.gates - 1}`;
 
   // the 3D tree must not re-render with every HUD update (≈10×/s)

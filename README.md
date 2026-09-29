@@ -4,7 +4,9 @@ Bengü'nün **Saygımdan** şarkısını sonsuz loop'ta dinlerken kafa dağıtma
 
 ## Akış
 
-1. **Açılış** (`/`): büyük başlık, dört oyunu scroll ile gezdiren sabit bölüm ve isim + e‑posta ile giriş (Zustand, sadece `localStorage`).
+1. **Açılış** (`/`): büyük başlık, dört oyunu scroll ile gezdiren sabit bölüm ve liderlik tablosu özeti. "Oyna" giriş popup'ını açar: kullanıcı adı + 4 haneli PIN (e‑posta yok). Genel ve oyun bazında tablolar `/leaderboard`'da.
+
+   Veri: üretimde Upstash Redis (Vercel Marketplace → Upstash Redis; `KV_REST_API_URL` + `KV_REST_API_TOKEN` env değişkenleri), lokalde `.data/db.json`.
 2. **Oyunlar** (`/games`): gerçek oyun kareleriyle liste (`public/covers/*.jpg`).
 3. **Oyun** (`/play/[slug]`): "Başlat" ile oyun ve şarkı başlar.
 

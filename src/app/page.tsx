@@ -4,7 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { GAMES } from "@/lib/games";
-import { useHydrated, useMusicStore, useUserStore } from "@/lib/store";
+import { useAuthDialog, useHydrated, useMusicStore, useUserStore } from "@/lib/store";
+import type { Board } from "@/lib/leaderboard";
+import { BoardList, BoardTabs } from "@/components/site/Leaderboard";
 import { Keys, Pill, SiteNav, Wordmark } from "@/components/site/Chrome";
 import GameShot from "@/components/site/GameShot";
 import FlutedBackdrop from "@/components/site/FlutedBackdrop";
@@ -15,12 +17,13 @@ export default function Landing() {
   const hydrated = useHydrated();
   const user = useUserStore((s) => s.user);
   const startMusic = useMusicStore((s) => s.start);
+  const showAuth = useAuthDialog((s) => s.show);
   const loggedIn = hydrated && !!user;
 
   const play = () => {
     startMusic();
     if (loggedIn) router.push("/games");
-    else document.getElementById("giris")?.scrollIntoView({ behavior: "smooth" });
+    else showAuth({ next: "/games" });
   };
 
   return (
@@ -29,18 +32,15 @@ export default function Landing() {
         <a href="#oyunlar" className="hidden sm:inline hover:text-ink transition-colors">
           Oyunlar
         </a>
-        <a href="#giris" className="hidden sm:inline hover:text-ink transition-colors">
-          {loggedIn ? "Hesap" : "Giriş"}
-        </a>
         <Pill small play onClick={play}>
           {loggedIn ? "Oyunlara git" : "Oyna"}
         </Pill>
       </SiteNav>
 
       <main>
-        <Hero onPlay={play} loggedIn={loggedIn} />
-        <GamesPinned loggedIn={loggedIn} />
-        <SignIn />
+        <Hero onPlay={play} />
+        <GamesPinned />
+        <LeaderboardTeaser />
       </main>
 
       <Footer />
@@ -53,10 +53,11 @@ export default function Landing() {
 /** Record-sleeve hero: the song is the point, the games are its tracks. */
 const SIDES = ["A1", "A2", "B1", "B2"];
 
-function Hero({ onPlay, loggedIn }: { onPlay: () => void; loggedIn: boolean }) {
+function Hero({ onPlay }: { onPlay: () => void }) {
   const playing = useMusicStore((s) => s.playing);
   const [track, setTrack] = useState(0);
-  const hrefFor = (slug: string) => (loggedIn ? `/play/${slug}` : "#giris");
+  // signed out: the game page asks for a name first
+  const hrefFor = (slug: string) => `/play/${slug}`;
 
   return (
     <section className="relative isolate overflow-hidden">
@@ -135,7 +136,7 @@ function Hero({ onPlay, loggedIn }: { onPlay: () => void; loggedIn: boolean }) {
 /* ------------------------------------------------------------------ */
 
 /** Pinned section: scroll moves through the four games, the stage swaps screenshots. */
-function GamesPinned({ loggedIn }: { loggedIn: boolean }) {
+function GamesPinned() {
   const ref = useRef<HTMLElement>(null);
   const [progress, setProgress] = useState(0);
   const active = Math.min(GAMES.length - 1, Math.floor(progress * GAMES.length));
@@ -165,7 +166,8 @@ function GamesPinned({ loggedIn }: { loggedIn: boolean }) {
   };
 
   const game = GAMES[active];
-  const hrefFor = (slug: string) => (loggedIn ? `/play/${slug}` : "#giris");
+  // signed out: the game page asks for a name first
+  const hrefFor = (slug: string) => `/play/${slug}`;
 
   return (
     <section id="oyunlar" ref={ref} className="relative border-t border-line lg:h-[360vh]">
@@ -270,133 +272,33 @@ function PlayGlyph() {
 
 /* ------------------------------------------------------------------ */
 
-function SignIn() {
-  const router = useRouter();
-  const hydrated = useHydrated();
-  const { user, setUser, clearUser } = useUserStore();
-  const startMusic = useMusicStore((s) => s.start);
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [error, setError] = useState<{ field: "name" | "email"; text: string } | null>(null);
-
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name.trim()) return setError({ field: "name", text: "Adını yaz, skorların yanında görünecek." });
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()))
-      return setError({ field: "email", text: "E-posta adresi eksik ya da hatalı. Örnek: ada@mail.com" });
-    setError(null);
-    setUser({ name: name.trim(), email: email.trim() });
-    startMusic();
-    router.push("/games");
-  };
-
+/** Bottom of the landing: the overall table, one tab away from each game's. */
+function LeaderboardTeaser() {
+  const [board, setBoard] = useState<Board>("all");
   return (
-    <section id="giris" className="border-t border-line">
-      <div className="mx-auto grid max-w-[1280px] gap-12 px-5 py-24 sm:px-10 lg:grid-cols-2 lg:py-32 narrow:gap-10 narrow:py-16 short:py-14">
+    <section id="liderlik" className="border-t border-line">
+      <div className="mx-auto grid max-w-[1280px] gap-12 px-5 py-24 sm:px-10 lg:grid-cols-[0.9fr_1.1fr] lg:py-32 narrow:gap-8 narrow:py-16 short:py-14">
         <div>
           <h2 className="display-2 text-[clamp(2.6rem,5.4vw,5rem)]">
-            Adını yaz,
+            Liderlik
             <br />
-            şehre in.
+            tablosu.
           </h2>
           <p className="mt-5 max-w-[28rem] text-[17px] leading-[1.55] text-muted-ink narrow:text-[16px]">
-            Hesap açmak yok. Adın ve e-postan sadece bu tarayıcıda saklanır, hiçbir yere gönderilmez.
+            Her oyunda en iyi skorun tabloya girer. Genel tabloda her oyunun rekoru 1000 puan: rekora ne kadar yakınsan o kadar puan.
           </p>
-        </div>
-
-        {hydrated && user ? (
-          <div className="self-end">
-            <p className="text-[clamp(1.6rem,2.6vw,2.2rem)] font-semibold tracking-[-0.03em]">
-              Tekrar hoş geldin, {user.name}.
-            </p>
-            <div className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-3">
-              <Pill
-                onClick={() => {
-                  startMusic();
-                  router.push("/games");
-                }}
-              >
-                Oyunlara geç
-              </Pill>
-              <button type="button" onClick={clearUser} className="min-h-10 text-[15px] text-muted-ink underline underline-offset-4 hover:text-ink">
-                Farklı isimle gir
-              </button>
-            </div>
+          <div className="mt-8">
+            <Link href={`/leaderboard${board === "all" ? "" : `?oyun=${board}`}`} className="ghost">
+              Tüm tablo
+            </Link>
           </div>
-        ) : (
-          <form onSubmit={submit} noValidate className="self-end" suppressHydrationWarning>
-            <Field
-              id="name"
-              label="Adın"
-              value={name}
-              onChange={setName}
-              autoComplete="given-name"
-              placeholder="Ada"
-              error={error?.field === "name" ? error.text : undefined}
-            />
-            <Field
-              id="email"
-              label="E-posta"
-              type="email"
-              value={email}
-              onChange={setEmail}
-              autoComplete="email"
-              placeholder="ada@mail.com"
-              error={error?.field === "email" ? error.text : undefined}
-            />
-            <div className="mt-10 narrow:mt-8">
-              <Pill type="submit">Oyunlara geç</Pill>
-            </div>
-          </form>
-        )}
+        </div>
+        <div className="min-w-0">
+          <BoardTabs value={board} onChange={setBoard} />
+          <BoardList board={board} limit={5} className="mt-5" />
+        </div>
       </div>
     </section>
-  );
-}
-
-function Field({
-  id,
-  label,
-  value,
-  onChange,
-  type = "text",
-  autoComplete,
-  placeholder,
-  error,
-}: {
-  id: string;
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  type?: string;
-  autoComplete?: string;
-  placeholder?: string;
-  error?: string;
-}) {
-  return (
-    <div className="mt-6 first:mt-0">
-      <label htmlFor={id} className="block text-[15px] text-muted-ink">
-        {label}
-      </label>
-      {/* browsers' autofill (e.g. Chrome on iOS) adds attributes before React hydrates */}
-      <input
-        suppressHydrationWarning
-        id={id}
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        autoComplete={autoComplete}
-        placeholder={placeholder}
-        aria-invalid={!!error}
-        aria-describedby={error ? `${id}-err` : undefined}
-        className="mt-1 w-full border-0 border-b-2 border-line bg-transparent py-3 text-[clamp(1.5rem,2.6vw,2.2rem)] font-semibold tracking-[-0.03em] text-ink outline-none transition-colors placeholder:text-[#cfcfcd] focus:border-ink focus-visible:outline-none aria-[invalid=true]:border-[#d92d20]"
-      />
-      {error && (
-        <p id={`${id}-err`} className="mt-2 text-[14px] text-[#d92d20] animate-fade-up">
-          {error}
-        </p>
-      )}
-    </div>
   );
 }
 
@@ -407,6 +309,14 @@ function Footer() {
     <footer className="border-t border-line">
       <div className="mx-auto flex max-w-[1280px] flex-wrap items-center justify-between gap-x-4 gap-y-2 px-5 pt-10 text-[14px] text-muted-ink sm:px-10 narrow:pt-8 narrow:text-[13px]">
         <Wordmark className="text-ink" />
+        <nav className="flex gap-5 font-medium text-ink">
+          <Link href="/games" className="hover:text-red">
+            Oyunlar
+          </Link>
+          <Link href="/leaderboard" className="hover:text-red">
+            Liderlik Tablosu
+          </Link>
+        </nav>
         <p>Şarkı: Bengü, Saygımdan. Oyunlar klavye ve fareyle, telefonda dokunmatik tuşlarla oynanır.</p>
       </div>
       <div aria-hidden className="overflow-hidden">
