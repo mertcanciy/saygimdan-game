@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { Play } from "lucide-react";
+import InductionRim from "./InductionRim";
 
 export function Wordmark({ className = "" }: { className?: string }) {
   return (
@@ -28,6 +29,7 @@ export function Pill({
   small,
   disabled,
   play,
+  fx = true,
 }: {
   children: React.ReactNode;
   href?: string;
@@ -37,10 +39,13 @@ export function Pill({
   disabled?: boolean;
   /** leading ▶ for buttons that start a game or the song */
   play?: boolean;
+  /** the animated "induction" rim (off over the game canvas: the GPU belongs to the game there) */
+  fx?: boolean;
 }) {
-  const cls = `pill ${small ? "pill-sm" : ""}`;
+  const cls = `pill ${small ? "pill-sm" : ""} ${fx ? "pill-fx" : ""}`;
   const inner = (
     <>
+      {fx && <InductionRim />}
       {play && <Play aria-hidden className={`fill-current ${small ? "size-3.5" : "size-4"}`} strokeWidth={0} />}
       <span>{children}</span>
     </>

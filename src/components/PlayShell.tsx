@@ -5,7 +5,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Maximize2, Minimize2 } from "lucide-react";
 import { GameInfo } from "@/lib/games";
-import { useHydrated, useUserStore } from "@/lib/store";
+import { useHydrated, useLoginDialog, useUserStore } from "@/lib/store";
+import { beginSession, flushScore, sessionPoints, setPlaying, subscribeSession } from "@/lib/sessionScore";
+import { BoardList, MyRank, refreshBoards } from "@/components/site/Leaderboard";
 import { music } from "@/lib/musicEngine";
 import { GAME_COMPONENTS } from "@/components/games";
 import TouchControls, { TOUCH_HELP } from "@/components/games/shared/TouchControls";
@@ -36,6 +38,7 @@ async function enterLandscapeFullscreen() {
 export default function PlayShell({ game }: { game: GameInfo }) {
   const router = useRouter();
   const user = useUserStore((s) => s.user);
+  const showLogin = useLoginDialog((s) => s.show);
   const hydrated = useHydrated();
   const touch = useIsTouch();
   const portrait = useIsPortrait();
@@ -57,9 +60,31 @@ export default function PlayShell({ game }: { game: GameInfo }) {
   const userLeftFullscreen = useRef(false);
   const hold = phase === "paused" || (phase === "play" && touch && portrait && !portraitOk);
 
+  /*
+   * Leaderboard: the points earned in this visit go to the server when the
+   * player leaves (and on pause / app to background, so nothing is lost if the
+   * phone kills the tab). See lib/sessionScore.ts.
+   */
   useEffect(() => {
-    if (hydrated && !user) router.replace("/#giris");
-  }, [hydrated, user, router]);
+    beginSession(game.slug);
+    const onHide = () => {
+      if (document.visibilityState === "hidden") void flushScore(true);
+    };
+    const onPageHide = () => void flushScore(true);
+    document.addEventListener("visibilitychange", onHide);
+    window.addEventListener("pagehide", onPageHide);
+    return () => {
+      document.removeEventListener("visibilitychange", onHide);
+      window.removeEventListener("pagehide", onPageHide);
+      setPlaying(false);
+      void flushScore().then(refreshBoards);
+    };
+  }, [game.slug]);
+
+  useEffect(() => {
+    setPlaying(phase === "play");
+    if (phase === "paused") void flushScore().then(refreshBoards);
+  }, [phase]);
 
   useEffect(() => {
     setSceneHold(hold);
@@ -143,6 +168,8 @@ export default function PlayShell({ game }: { game: GameInfo }) {
     // first, and synchronously: phones only allow sound to start inside the tap
     // itself (and requesting fullscreen can use the tap up)
     music.playUnlessPaused();
+    // opened by link while signed out: sign in first (then Başlat again)
+    if (!user) return showLogin(null);
     setPhase("play");
     if (touch) void enterLandscapeFullscreen();
   };
@@ -159,7 +186,7 @@ export default function PlayShell({ game }: { game: GameInfo }) {
 
   return (
     <main className="relative h-dvh w-full touch-none overflow-hidden overscroll-none bg-[#c9d4de] select-none">
-      {hydrated && user && hzReady && <GameComponent started={started} />}
+      {hydrated && hzReady && <GameComponent started={started} />}
 
       {/* top-left: way back + where you are (compact on phones) */}
       <div className="absolute left-[max(1rem,env(safe-area-inset-left))] top-4 z-30 flex items-center gap-2 short:left-[max(0.75rem,env(safe-area-inset-left))] short:top-[max(0.625rem,env(safe-area-inset-top))] short:gap-1.5 narrow:gap-1.5">
@@ -252,8 +279,9 @@ export default function PlayShell({ game }: { game: GameInfo }) {
                 ) : (
                   <ControlsList game={game} className="mt-6 short:mt-0" />
                 )}
+                {phase === "paused" && <SessionPoints />}
                 <div className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-3 short:mt-3 narrow:mt-6">
-                  <Pill play onClick={begin} small={touch}>
+                  <Pill play onClick={begin} small={touch} fx={false}>
                     {phase === "paused" ? "Devam et" : "Başlat"}
                   </Pill>
                   {phase === "paused" && (
@@ -272,6 +300,7 @@ export default function PlayShell({ game }: { game: GameInfo }) {
                     </button>
                   )}
                 </div>
+                {hydrated && <StartBoard game={game} signedIn={!!user} />}
               </div>
             </div>
           </div>
@@ -318,5 +347,44 @@ function ControlsCard({ game, className = "" }: { game: GameInfo; className?: st
       <p className="mb-3 text-[13px] leading-[1.45] text-muted-ink">{game.goal}</p>
       <ControlsList game={game} />
     </div>
+  );
+}
+
+/** "Oyna"nın altında: this game's top 5 (top 3 on a landscape phone) + your rank. */
+function StartBoard({ game, signedIn }: { game: GameInfo; signedIn: boolean }) {
+  return (
+    <section aria-label={`${game.title} liderlik tablosu`} className="mt-7 border-t border-line pt-4 short:mt-3 short:pt-2">
+      <div className="mb-1.5 flex items-baseline justify-between gap-3 text-[13px]">
+        <span className="font-bold uppercase tracking-[0.06em] text-ink">Liderlik</span>
+        {signedIn ? (
+          <span className="font-semibold text-red">
+            <MyRank board={game.slug} />
+          </span>
+        ) : (
+          <Link href={`/liderlik?oyun=${game.slug}`} className="font-medium text-muted-ink underline underline-offset-4">
+            Tümü
+          </Link>
+        )}
+      </div>
+      <div className="short:[&_li:nth-child(n+4)]:hidden">
+        <BoardList board={game.slug} limit={5} dense empty="Henüz kimse puan almadı. İlk sen ol." />
+      </div>
+      {signedIn && (
+        <Link href={`/liderlik?oyun=${game.slug}`} className="mt-2 inline-flex min-h-9 items-center text-[13px] font-medium text-muted-ink underline underline-offset-4 short:hidden">
+          Tüm tablo
+        </Link>
+      )}
+    </section>
+  );
+}
+
+/** Paused: what this visit earned so far (it's already on the board). */
+function SessionPoints() {
+  const points = useSyncExternalStore(subscribeSession, sessionPoints, () => 0);
+  if (points <= 0) return null;
+  return (
+    <p className="mt-5 text-[15px] font-semibold text-ink short:mt-2 short:text-[13px]">
+      Bu turda <span className="text-red tabular-nums">+{points.toLocaleString("tr-TR")}</span> puan, tablona eklendi.
+    </p>
   );
 }

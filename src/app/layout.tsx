@@ -3,6 +3,7 @@ import { Archivo, Schibsted_Grotesk, JetBrains_Mono } from "next/font/google";
 import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import SongDock from "@/components/SongDock";
+import LoginDialog from "@/components/site/LoginDialog";
 import "./globals.css";
 
 const sans = Schibsted_Grotesk({
@@ -41,6 +42,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body suppressHydrationWarning>
         {children}
         <SongDock />
+        <LoginDialog />
         {/* page views (cookieless) + real-user performance, shown in the Vercel dashboard */}
         <Analytics />
         <SpeedInsights />

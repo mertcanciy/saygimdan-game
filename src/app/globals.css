@@ -129,6 +129,7 @@
 
 /* ---------- buttons: red label (primary), ink outline (secondary) ---------- */
 .pill {
+  position: relative; /* the induction rim canvas sits around it */
   display: inline-flex;
   align-items: center;
   gap: 10px;
@@ -147,6 +148,17 @@
   white-space: nowrap;
 }
 .pill:hover { background: linear-gradient(180deg, #d02a35 0%, var(--red-deep) 100%); }
+/* with the induction rim: a clear button. The page shows through; the red
+   comes from the rim and its glow bleeding inwards, so the label turns red. */
+.pill-fx {
+  background: radial-gradient(120% 140% at 50% 50%, rgba(220, 30, 42, 0.03) 40%, rgba(220, 30, 42, 0.12) 100%);
+  box-shadow: inset 0 0 14px rgba(220, 30, 42, 0.28), inset 0 0 2px rgba(220, 30, 42, 0.5);
+  color: var(--red-deep);
+}
+.pill-fx:hover {
+  background: radial-gradient(120% 140% at 50% 50%, rgba(220, 30, 42, 0.07) 40%, rgba(220, 30, 42, 0.2) 100%);
+  box-shadow: inset 0 0 20px rgba(220, 30, 42, 0.4), inset 0 0 2px rgba(220, 30, 42, 0.6);
+}
 .pill:active { transform: translateY(1px); }
 .pill:disabled { opacity: 0.55; cursor: default; }
 .pill-sm { height: 42px; padding: 0 18px; font-size: 15px; gap: 8px; }
@@ -293,6 +305,56 @@
   to { opacity: 1; transform: translateY(0); }
 }
 .animate-fade-up { animation: fade-up 0.45s ease-out both; }
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.animate-fade-in { animation: fade-in 0.25s ease-out both; }
+
+/* sign-in dialog: a bottom sheet on phones, a card on wider screens */
+@keyframes sheet-up {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-sheet-up { animation: sheet-up 0.32s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+
+/* sign-in: "Google ile devam et" / "Mail ile giriş yap" */
+.provider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 52px;
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1.5px var(--line);
+  color: var(--ink);
+  font-weight: 600;
+  font-size: 16px;
+  transition: box-shadow 0.15s ease, background-color 0.15s ease;
+}
+.provider:hover { box-shadow: inset 0 0 0 1.5px var(--ink); }
+.provider:disabled { opacity: 0.55; }
+
+/* big underlined text field (sign-in) */
+.field-input {
+  margin-top: 0.25rem;
+  width: 100%;
+  border: 0;
+  border-bottom: 2px solid var(--line);
+  background: transparent;
+  padding: 0.6rem 0;
+  font-size: clamp(1.5rem, 5vw, 2rem);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  color: var(--ink);
+  outline: none;
+  border-radius: 0;
+  transition: border-color 0.15s ease;
+}
+.field-input::placeholder { color: #cfcfcd; }
+.field-input:focus { border-color: var(--ink); }
+.field-input[aria-invalid="true"] { border-color: #d92d20; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

@@ -23,6 +23,7 @@ import TrackProps, { type CarProbe } from "./drift/Track";
 import Plaza, { MASTS } from "./drift/Plaza";
 import SkidMarks, { type SkidEmit } from "./drift/SkidMarks";
 import { getGame } from "@/lib/games";
+import { trackScore } from "@/lib/sessionScore";
 
 const ACCENT = getGame("drift")!.accent;
 const SUB = 1 / 120;
@@ -742,6 +743,8 @@ export default function Drift({ started }: { started: boolean }) {
   // the 3D tree must not re-render with every HUD update (≈10×/s)
   const dpr = useCanvasDpr();
   const frameloop = useSceneFrameloop();
+  // leaderboard: points earned this visit (lib/sessionScore.ts)
+  useEffect(() => trackScore(hud.total), [hud.total]);
   const scene = useMemo(() => <DriftScene started={started} onHud={setHud} />, [started]);
   return (
     <div className="absolute inset-0">

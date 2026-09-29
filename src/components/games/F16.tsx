@@ -19,6 +19,7 @@ import Explosion, { type ExplosionHandle } from "./f16/Explosion";
 import { Ribbon } from "./f16/Ribbon";
 import { WINGTIP, zs } from "./f16/jetGeometry";
 import { getGame } from "@/lib/games";
+import { trackScore } from "@/lib/sessionScore";
 
 const ACCENT = getGame("f16")!.accent;
 const PRESET = "golden" as const;
@@ -68,6 +69,18 @@ const AIM = {
   bankStart: THREE.MathUtils.degToRad(2.5),
   bankFull: THREE.MathUtils.degToRad(14),
   yawGain: 3.0,
+  /**
+   * A / D with the mouse: the rudder. It slides the aim sideways (rad/s) and
+   * the jet follows flat, wings level, no bank: fine lining-up for a ring.
+   * About what the rudder alone can turn the jet, so the nose keeps up.
+   */
+  rudderRate: 0.45,
+  /**
+   * Cockpit: the pilot's head looks at the aim, like the chase camera does,
+   * and the cockpit turns around it. 0 = horizon stays level, 1 = the view
+   * rolls fully with the jet; a little roll so the bank is still felt.
+   */
+  cockpitRoll: 0.3,
 };
 
 /*
@@ -318,6 +331,10 @@ function F16Scene({
     /** touch flight: last bank / pitch (for their rates) */
     lastBank: 0,
     lastPitch: 0,
+    /** A / D held with the mouse: -1 left, 1 right (flat rudder turn) */
+    rudder: 0,
+    /** the camera was in the cockpit last frame (else it snaps in, no swing) */
+    cockpitCam: false,
   });
 
   const banner = (text: string) => {
@@ -431,7 +448,9 @@ function F16Scene({
         // on-screen stick flies the jet directly (see TOUCH_FLY in step); no aim point
         s.aim.copy(_fwd);
       } else if (s.locked && !s.crashed && !s.keyboardFlying) {
-        s.aim.applyAxisAngle(WORLD_UP, dYaw);
+        // A / D: the rudder slides the aim sideways (flat turn, see step)
+        s.rudder = (k.has("KeyD") ? 1 : 0) - (k.has("KeyA") ? 1 : 0);
+        s.aim.applyAxisAngle(WORLD_UP, dYaw - s.rudder * AIM.rudderRate * dt);
         _aimAxis.crossVectors(s.aim, WORLD_UP);
         if (_aimAxis.lengthSq() > 1e-6) s.aim.applyAxisAngle(_aimAxis.normalize(), dPitch);
         // keep the aim within reach of the nose and away from straight up/down
@@ -447,6 +466,7 @@ function F16Scene({
           s.aim.set(s.aim.x * c, Math.sign(el) * Math.sin(AIM.maxElevation), s.aim.z * c);
         }
       } else {
+        s.rudder = 0;
         // no mouse control (not captured / keyboard / crashed): aim follows the
         // nose, levelled out, so the jet settles into straight and level flight
         _v.set(_fwd.x, s.keyboardFlying ? _fwd.y : 0, _fwd.z);
@@ -563,11 +583,23 @@ function F16Scene({
       cam.lookAt(s.pos);
     } else if (s.cockpit) {
       cam.position.copy(EYE).applyQuaternion(s.q).add(s.pos);
-      cam.quaternion.copy(s.q).multiply(Q_FLIP);
+      // the head looks at the aim (mouse flying works like the chase camera);
+      // flying the jet directly (arrows / touch: the aim is the nose), the view
+      // is simply the jet's and rolls with it
+      const mouseAim = s.locked && !s.keyboardFlying && !touch;
+      _up.set(0, 1, 0).applyQuaternion(s.q);
+      _v2.copy(WORLD_UP).lerp(_up, mouseAim ? AIM.cockpitRoll : 1).normalize();
+      _camM.lookAt(s.aim, _v.set(0, 0, 0), _v2);
+      _dq.setFromRotationMatrix(_camM);
+      if (!s.camInit || !s.cockpitCam) s.camQ.copy(_dq);
+      else s.camQ.slerp(_dq, Math.min(1, dt * 12));
+      s.cockpitCam = true;
+      cam.quaternion.copy(s.camQ).multiply(Q_FLIP);
       const sh = shakeAmt * 0.012 + Math.max(0, s.g - 5) * 0.0006;
       cam.position.x += (Math.random() - 0.5) * sh;
       cam.position.y += (Math.random() - 0.5) * sh;
     } else {
+      s.cockpitCam = false;
       // the camera looks along the aim; the jet chases it through the frame
       // (touch: the aim is the nose, so it simply follows behind)
       _camM.lookAt(s.aim, _v.set(0, 0, 0), WORLD_UP);
@@ -606,7 +638,8 @@ function F16Scene({
       const showAim = started && !photo && !s.crashed && !s.keyboardFlying && !touch && s.locked;
       cam.updateMatrixWorld();
       placeReticle(r?.aim ?? null, cam, s.aim, showAim);
-      placeReticle(r?.nose ?? null, cam, _fwd, started && !photo && !s.crashed && !s.cockpit);
+      // the nose cross in the cockpit too: the view is the aim's, the jet catches up to it
+      placeReticle(r?.nose ?? null, cam, _fwd, started && !photo && !s.crashed && (!s.cockpit || showAim));
     }
 
     const baseFov = s.cockpit && !s.crashed ? 68 : 60;
@@ -743,7 +776,8 @@ function F16Scene({
         let rollErr = Math.atan2(-_local.x, _local.y);
         if (_local.y < 0 && Math.abs(_local.x) < -_local.y * 0.6) rollErr = Math.atan2(-_local.x, -_local.y);
         const bank = Math.atan2(-_right.y, _up.y);
-        const w = THREE.MathUtils.smoothstep(off, AIM.bankStart, AIM.bankFull);
+        // rudder held: no banking, wings level while the rudder brings the nose round
+        const w = stt.rudder ? 0 : THREE.MathUtils.smoothstep(off, AIM.bankStart, AIM.bankFull);
         // near the target: wings level + rudder does the fine work
         const levelErr = -bank;
         const rollTarget = w * rollErr + (1 - w) * levelErr;
@@ -936,6 +970,8 @@ export default function F16({ started }: { started: boolean }) {
   // the 3D tree must not re-render with every HUD update (≈10×/s)
   const dpr = useCanvasDpr();
   const frameloop = useSceneFrameloop();
+  // leaderboard: points earned this visit (lib/sessionScore.ts)
+  useEffect(() => trackScore(hud.score), [hud.score]);
   const scene = useMemo(() => <F16Scene started={started} onHud={setHud} reticle={reticle} />, [started, reticle]);
   return (
     <div className="absolute inset-0">

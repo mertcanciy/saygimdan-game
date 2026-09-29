@@ -10,7 +10,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 # Proje: Saygımdan
 
-Şarkı çalarken oynanan 4 tarayıcı oyunu. Next.js 16 (App Router), React 19, TypeScript, Tailwind v4, three + @react-three/fiber + drei + @react-three/postprocessing, Zustand. Backend yok (kullanıcı `localStorage`'da).
+Şarkı çalarken oynanan 4 tarayıcı oyunu. Next.js 16 (App Router), React 19, TypeScript, Tailwind v4, three + @react-three/fiber + drei + @react-three/postprocessing, Zustand. Backend: liderlik tablosu için Next route handler'ları + Upstash Redis (Vercel Marketplace, `KV_REST_API_*`); giriş = kullanıcı adı + şifre (scrypt) ya da Firebase Auth (Google / mail linki); cihazda token.
 
 ## Komutlar
 - `npm run dev` · `npm run build` · `npm run lint` (test altyapısı yok; doğrulama = lint + build + tarayıcıda deneme)
@@ -20,19 +20,26 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 ```
 src/app/
   layout.tsx              kök layout: SongDock (şarkı), Vercel Analytics
-  page.tsx                açılış + giriş (isim/e-posta)
-  games/page.tsx          oyun listesi
+  page.tsx                açılış (Oyna → giriş penceresi) + liderlik bölümü
+  games/page.tsx          oyun listesi (girişsiz de açılır; oyuna tıklayınca giriş penceresi)
+  liderlik/               liderlik sayfası (?oyun=<slug> o sekmeyle açar)
+  api/                    users (ad durumu / hesap aç) · login (ad + şifre) · auth/firebase · auth/handoff (mail linki başka yerde açılınca) · me · scores · leaderboard
   play/[slug]/page.tsx    oyun sayfası (generateStaticParams, oyun viewport'u)
   manifest.ts             PWA: ad, /games açılışı, tam ekran, ikonlar (public/icons/); apple-icon.png, favicon.ico = plak
 src/lib/
   games.ts                oyun kaydı: GameSlug, başlık, açıklama, kontroller, renk
-  store.ts                Zustand: kullanıcı (persist); useMusicStore'u musicEngine'den verir
+  store.ts                Zustand: kullanıcı {id, name, via, token} (persist v3), useLoginDialog; useMusicStore'u musicEngine'den verir
+  scores.ts               istemci+sunucu ortak: ad/şifre kuralları, ad anahtarı (i/ı/İ/I tek harf), tablo tipleri, oyun başına saniyede max puan
+  sessionScore.ts         oyundaki bu ziyaretin puanı (HUD skorunun artışları), çıkışta/duraklatmada gönderilir
+  api.ts firebaseClient.ts   API çağrıları (Bearer token) · Firebase Auth (ilk kullanımda dinamik yüklenir)
+  server/                 db.ts (Redis anahtarları), players.ts (token, oyuncu, şifre + 15 dk'da 10 yanlışta kilit, Firebase token doğrulama: jose + Google JWKS)
   musicEngine.ts          şarkı çalar (React dışında tekil): mp3 ya da gizli YouTube, useMusicStore
   music.ts                mp3 yolu / YouTube id
 src/components/
   PlayShell.tsx           oyun kabuğu: Başlat ekranı, geri/tam ekran, dokunmatik/klavye yardım
   SongDock.tsx            şarkı çaların kumandası (UI); oynatıcıyı önceden hazırlar
-  site/                   site UI (Chrome, plak, kapak görselleri, InstallHint: iPhone'a "Ana ekrana ekle" ipucu)
+  site/                   site UI (Chrome, plak, kapak görselleri, InstallHint: iPhone'a "Ana ekrana ekle" ipucu,
+                          LoginDialog: tek giriş penceresi (layout'ta), Leaderboard: tablolar + önbellek, Account: nav)
   games/
     index.ts              slug → oyun bileşeni (dynamic, ssr:false)
     Spiderman.tsx Drift.tsx F16.tsx Traffic.tsx   her oyun tek dosya: sahne + fizik + HUD
@@ -62,6 +69,7 @@ public/models/ (spiderman.glb) · public/covers/<slug>.jpg (oyun kapakları)
 - Sağ taraftaki butonlar bir `Cluster`: parmak kaldırmadan butondan butona kayılır (Gaz → Nitro), `chord` iki butonun arasına basınca ikisini birden basar (Gaz + El freni), `look` butondan başlayan sürükleme kamerayı çevirir (Ağ).
 - Joystick ve direksiyon **ilk temas noktasını** referans alır ve dokunuş boyunca değiştirmez: çıktı = parmağın ilk değdiği yerden uzaklığı (joystick kenarda kırpılır, merkez kaymaz; direksiyon sadece yatay kaymaya bakar, ~75 px = tam kilit). Açıya ya da ekran kenarına göre hesaplama geri getirme; telefonda "saçmalıyor" diye geri döndü.
 - F-16 dokunmatikte sol çubukla uçar (`TOUCH_FLY`): yana = yatış açısı, yukarı/aşağı = tırmanış açısı, tutulur; bırakınca düz uçuş. Çubuğun ucu (eksen başına > 0.88, halka kırmızı yanar) sert manevra: yukarı = sürekli çekiş (loop), yana = 84° yatış + çekiş (sert dönüş), aşağı = dik dalış.
+- F-16 masaüstü (fare nişanı, `AIM`): kamera nişana bakar, uçak onu kovalar. Kokpitte de aynısı: göz uçağa sabit ama bakış nişanda, ufuk büyük ölçüde düz (`cockpitRoll` 0.3); kokpiti burna kilitlemek (eski hali) fareyle oynanmaz hale getiriyordu. A/D fareyle dümen: nişanı yatayda kaydırır, uçak kanat yatırmadan döner (~28°/s). Ok tuşları / dokunmatikte kokpit uçakla birlikte döner.
 - Ağ Sallan'da havadayken sol çubuk döndürür, kamera arkadan takip eder (`TOUCH`): serbest uçuşta hız vektörü döner; ağdayken yanal çekiş kuvveti (ip olduğu yerde kalır; ip ucunu kaydırma), çapa arkada kalınca yeni ağ dönüşün iç tarafına (bekleme süreli).
 - Makas: korna sağ grupta (frenin üstünde), gazla arasına basınca ikisi birden; direksiyon göbeği sadece süs (korna orada olunca direksiyonu çeviren başparmak korna çalamıyordu).
 - Drift dokunmatikte varsayılan **otomatik gaz** (`touchPrefs.ts`, üstteki "Oto gaz" düğmesi, cihazda hatırlanır): sağda el freni + fren. Kapatınca pedallar gelir.
@@ -74,8 +82,14 @@ public/models/ (spiderman.glb) · public/covers/<slug>.jpg (oyun kapakları)
 - Oynatıcı önceden hazırlanır (`music.prepare()`: oyun sayfasında hemen, diğer sayfalarda ilk etkileşimde). Tarayıcı başlatmayı reddederse `blocked` olur; dock "Şarkı için dokun" der ve görünmez YouTube oynatıcısı dock'un çal butonunun üstüne yerleşir (dokunuş doğrudan YouTube'a gider). YouTube API'si veya oynatıcı 12 saniyede hazır olmazsa `error` görünür; dock'taki hata metni yeniden denemeyi anlatır ve sonraki dokunuş yeni bir yükleme başlatır.
 - Web Audio (korna) için `keepAudioContextUnlocked(ctx)`: iOS'ta sonraki dokunuşta context'i açar.
 
+## Liderlik tablosu
+- Oyun, HUD skoru değişince `trackScore(skor)` çağırır (her oyunda tek satır). Skor düşerse yeni tur sayılır; kazanılan = artışların toplamı. `PlayShell` gönderilmemiş puanı duraklatınca, sekme gizlenince, `pagehide`'da (sendBeacon) ve oyundan çıkınca yollar; sunucu `lb:<slug>` ve `lb:all`'a ekler.
+- Sunucu puanı `MAX_POINTS_PER_SEC × oynanan saniye + tampon` ile kırpar (`lib/scores.ts`). Oyunda puan formülü büyürse bu sınırı da güncelle.
+- Localhost ve canlı aynı Redis'i kullanır: test oyuncularını silmeyi unutma.
+- Firebase ayarı: `NEXT_PUBLIC_FIREBASE_{API_KEY,AUTH_DOMAIN,PROJECT_ID,APP_ID}`. Yoksa Google/Mail düğmeleri gizlenir, sadece kullanıcı adı kalır. Yeni alan adı → Firebase "Authorized domains"a ekle.
+
 ## Yeni oyun eklerken dokunulacak yerler
-`lib/games.ts` (GameSlug + kayıt) · `components/games/index.ts` · `app/play/[slug]/page.tsx` (generateStaticParams) · `shared/TouchControls.tsx` (LAYOUTS, TOUCH_HELP) · `public/covers/<slug>.jpg`
+`lib/games.ts` (GameSlug + kayıt) · `lib/scores.ts` (MAX_POINTS_PER_SEC) · oyunda `trackScore` · `components/games/index.ts` · `app/play/[slug]/page.tsx` (generateStaticParams) · `shared/TouchControls.tsx` (LAYOUTS, TOUCH_HELP) · `public/covers/<slug>.jpg`
 
 ## Performans kuralları (ölçülerek bulundu)
 - DPR'ı sadece `useCanvasDpr`/`WorldEffects` yönetir; Canvas'a sabit `dpr` verme (her render'da adaptif ayarı ezer). `frameloop` bekletmesi de dört Canvas'a prop olarak verilir; R3F her render'da Canvas ayarlarını yeniden uygular.

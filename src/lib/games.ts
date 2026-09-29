@@ -58,11 +58,11 @@ export const GAMES: GameInfo[] = [
     controls: [
       { keys: ["Fare"], label: "nişan al, uçak oraya döner (önce ekrana tıkla)" },
       { keys: ["↑", "↓", "←", "→"], label: "doğrudan kumanda" },
-      { keys: ["A", "D"], label: "dümen" },
+      { keys: ["A", "D"], label: "dümen: kanat yatırmadan burnu kaydırır (halkaya ince ayar)" },
       { keys: ["W", "S"], label: "gaz" },
       { keys: ["Shift"], label: "afterburner" },
       { keys: ["Space"], label: "tonoz" },
-      { keys: ["C"], label: "kokpit" },
+      { keys: ["C"], label: "kokpit (fareyle aynı şekilde uçulur)" },
     ],
     accent: "#0284c7",
     tint: "#e0f2fe",
