@@ -2,39 +2,28 @@
 
 import { useEffect } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { GAMES } from "@/lib/games";
-import { useHydrated, useUserStore } from "@/lib/store";
+import { useAuthDialog, useHydrated, useUserStore } from "@/lib/store";
+import { formatScore, type Board } from "@/lib/leaderboard";
+import { useBoard } from "@/lib/scores";
 import { Keys, SiteNav } from "@/components/site/Chrome";
 import GameShot from "@/components/site/GameShot";
 import InstallHint from "@/components/site/InstallHint";
 
 export default function GamesPage() {
-  const router = useRouter();
-  const { user, clearUser } = useUserStore();
+  const user = useUserStore((s) => s.user);
   const hydrated = useHydrated();
+  const showAuth = useAuthDialog((s) => s.show);
 
   useEffect(() => {
-    if (hydrated && !user) router.replace("/#giris");
-  }, [hydrated, user, router]);
+    if (hydrated && !user) showAuth({ required: true });
+  }, [hydrated, user, showAuth]);
 
   if (!hydrated || !user) return <main className="min-h-dvh" />;
 
   return (
     <>
-      <SiteNav>
-        <span className="hidden text-ink sm:inline">{user.name}</span>
-        <button
-          type="button"
-          onClick={() => {
-            clearUser();
-            router.push("/");
-          }}
-          className="inline-flex min-h-10 items-center hover:text-ink"
-        >
-          Çıkış yap
-        </button>
-      </SiteNav>
+      <SiteNav />
 
       <main className="mx-auto max-w-[1280px] px-5 pb-40 pt-16 sm:px-10 sm:pt-24 narrow:pb-32 narrow:pt-10 short:pt-10">
         <h1 className="display-2 max-w-[16ch] text-[clamp(2.6rem,5.6vw,5rem)] narrow:text-[clamp(2.1rem,10.5vw,2.6rem)] short:text-[clamp(2.2rem,11dvh,3.2rem)]">
@@ -60,6 +49,7 @@ export default function GamesPage() {
                   </h2>
                   <p className="mt-3 text-[18px] font-medium tracking-[-0.01em] narrow:mt-2 narrow:text-[16px]">{g.subtitle}</p>
                   <p className="mt-2 max-w-[30rem] text-[15.5px] leading-[1.55] text-muted-ink narrow:text-[15px]">{g.description}</p>
+                  <GameRecord board={g.slug} />
                   {/* keyboard hints are noise on a phone */}
                   <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-[13px] text-muted-ink pointer-coarse:hidden">
                     {g.controls.slice(0, 3).map((c) => (
@@ -84,5 +74,24 @@ export default function GamesPage() {
         </ul>
       </main>
     </>
+  );
+}
+
+/** "Rekor: Ada 12.340 · Sen #4" under each game. */
+function GameRecord({ board }: { board: Board }) {
+  const { data } = useBoard(board, 1);
+  const top = data?.entries[0];
+  if (!top) return null;
+  return (
+    <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[14px] text-muted-ink">
+      <span>
+        Rekor: <span className="font-semibold text-ink">{top.name}</span> <span className="tabular-nums">{formatScore(top.score)}</span>
+      </span>
+      {data.me && (
+        <span className="rounded-full bg-red-tint px-2 py-0.5 text-[12.5px] font-semibold text-red tabular-nums">
+          Sen #{data.me.rank} · {formatScore(data.me.score)}
+        </span>
+      )}
+    </p>
   );
 }

@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { Play } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Play, Trophy, UserRound } from "lucide-react";
+import { useAuthDialog, useHydrated, useUserStore } from "@/lib/store";
 
 export function Wordmark({ className = "" }: { className?: string }) {
   return (
@@ -58,14 +60,54 @@ export function Pill({
   );
 }
 
+/** Top bar: wordmark, page links (`children`), the leaderboard, the player. */
 export function SiteNav({ children }: { children?: React.ReactNode }) {
   return (
     <header className="sticky top-0 z-40 h-[var(--nav-h)] border-b border-line bg-paper/90 backdrop-blur">
       <div className="mx-auto flex h-full max-w-[1280px] items-center justify-between gap-4 px-5 sm:gap-6 sm:px-10 narrow:px-4">
         <Wordmark />
-        <nav className="flex items-center gap-2 sm:gap-8 text-[15px] text-muted-ink">{children}</nav>
+        <nav className="flex items-center gap-2 sm:gap-8 text-[15px] text-muted-ink">
+          <Link href="/leaderboard" className="inline-flex min-h-10 items-center gap-1.5 hover:text-ink transition-colors" aria-label="Liderlik Tablosu">
+            <Trophy aria-hidden className="size-[18px] sm:size-4" />
+            <span className="hidden sm:inline">Liderlik</span>
+          </Link>
+          <Account />
+          {children}
+        </nav>
       </div>
     </header>
+  );
+}
+
+/** Signed in: name + sign out. Signed out: opens the sign-in dialog. */
+function Account() {
+  const router = useRouter();
+  const hydrated = useHydrated();
+  const user = useUserStore((s) => s.user);
+  const clearUser = useUserStore((s) => s.clearUser);
+  const show = useAuthDialog((s) => s.show);
+  if (!hydrated) return null;
+  if (!user)
+    return (
+      <button type="button" onClick={() => show()} className="inline-flex min-h-10 items-center gap-1.5 hover:text-ink transition-colors">
+        <UserRound aria-hidden className="size-[18px] sm:hidden" />
+        <span className="hidden sm:inline">Giriş</span>
+      </button>
+    );
+  return (
+    <span className="inline-flex items-center gap-2 sm:gap-3">
+      <span className="hidden max-w-[10rem] truncate font-medium text-ink md:inline">{user.name}</span>
+      <button
+        type="button"
+        onClick={() => {
+          clearUser();
+          router.push("/");
+        }}
+        className="inline-flex min-h-10 items-center hover:text-ink transition-colors"
+      >
+        Çıkış
+      </button>
+    </span>
   );
 }
 

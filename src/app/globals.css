@@ -302,3 +302,20 @@
   }
   html { scroll-behavior: auto; }
 }
+
+/* sign-in dialog */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes sheet-up {
+  from { opacity: 0; transform: translateY(24px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* leaderboard rows sliding in */
+@keyframes row-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-row { animation: row-in 0.35s ease-out both; }

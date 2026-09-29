@@ -5,7 +5,10 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Maximize2, Minimize2 } from "lucide-react";
 import { GameInfo } from "@/lib/games";
-import { useHydrated, useUserStore } from "@/lib/store";
+import { useAuthDialog, useHydrated, useUserStore } from "@/lib/store";
+import { flushScores, useScoreStore } from "@/lib/scores";
+import { formatScore } from "@/lib/leaderboard";
+import { BoardList } from "@/components/site/Leaderboard";
 import { music } from "@/lib/musicEngine";
 import { GAME_COMPONENTS } from "@/components/games";
 import TouchControls, { TOUCH_HELP } from "@/components/games/shared/TouchControls";
@@ -57,9 +60,16 @@ export default function PlayShell({ game }: { game: GameInfo }) {
   const userLeftFullscreen = useRef(false);
   const hold = phase === "paused" || (phase === "play" && touch && portrait && !portraitOk);
 
+  const showAuth = useAuthDialog((s) => s.show);
   useEffect(() => {
-    if (hydrated && !user) router.replace("/#giris");
-  }, [hydrated, user, router]);
+    if (hydrated && !user) showAuth({ required: true });
+  }, [hydrated, user, showAuth]);
+
+  // the run's score goes to the leaderboard as soon as the game stops
+  useEffect(() => {
+    if (phase !== "play") flushScores();
+  }, [phase]);
+  useEffect(() => () => flushScores(), []);
 
   useEffect(() => {
     setSceneHold(hold);
@@ -253,8 +263,8 @@ export default function PlayShell({ game }: { game: GameInfo }) {
                   <ControlsList game={game} className="mt-6 short:mt-0" />
                 )}
                 <div className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-3 short:mt-3 narrow:mt-6">
-                  <Pill play onClick={begin} small={touch}>
-                    {phase === "paused" ? "Devam et" : "Başlat"}
+                  <Pill play onClick={begin} small={touch} disabled={!user}>
+                    {phase === "paused" ? "Devam et" : "Oyna"}
                   </Pill>
                   {phase === "paused" && (
                     <Link href="/games" className="inline-flex min-h-11 items-center text-[15px] font-medium text-ink underline underline-offset-4">
@@ -272,11 +282,14 @@ export default function PlayShell({ game }: { game: GameInfo }) {
                     </button>
                   )}
                 </div>
+                <MiniBoard game={game} />
               </div>
             </div>
           </div>
         </div>
       )}
+
+      <RecordToast slug={game.slug} />
 
       {/* phones held upright: suggest landscape (can be dismissed) */}
       {touch && portrait && !portraitOk && (
@@ -317,6 +330,42 @@ function ControlsCard({ game, className = "" }: { game: GameInfo; className?: st
     <div className={`rounded-[18px] border border-line bg-paper/95 p-4 ${className}`}>
       <p className="mb-3 text-[13px] leading-[1.45] text-muted-ink">{game.goal}</p>
       <ControlsList game={game} />
+    </div>
+  );
+}
+
+/** Under the Oyna button: this game's top players and your place. */
+function MiniBoard({ game }: { game: GameInfo }) {
+  return (
+    <div className="mt-7 border-t border-line pt-5 short:mt-3 short:pt-2.5">
+      <div className="flex items-baseline justify-between gap-3">
+        <p className="text-[14px] font-semibold short:text-[12.5px]">Liderlik tablosu</p>
+        <Link href={`/leaderboard?oyun=${game.slug}`} className="text-[13px] text-muted-ink underline underline-offset-4 hover:text-ink short:text-[12px]">
+          Tümü
+        </Link>
+      </div>
+      <BoardList board={game.slug} limit={5} compact className="mt-1.5 short:hidden" />
+      <BoardList board={game.slug} limit={3} compact className="mt-0.5 hidden short:block" />
+    </div>
+  );
+}
+
+/** "Yeni rekor · #3" for a moment after a personal best reaches the table. */
+function RecordToast({ slug }: { slug: GameInfo["slug"] }) {
+  const last = useScoreStore((s) => s.last);
+  const [now, setNow] = useState(0);
+  useEffect(() => {
+    if (!last) return;
+    const t = setTimeout(() => setNow(Date.now()), 3200);
+    return () => clearTimeout(t);
+  }, [last]);
+  if (!last || !last.improved || last.game !== slug || now >= last.at + 3000) return null;
+  return (
+    <div className="pointer-events-none absolute inset-x-0 top-[4.4rem] z-30 flex justify-center short:top-3">
+      <div key={last.at} className="animate-pop rounded-full bg-ink px-4 py-2 text-[14px] font-semibold text-paper shadow-lg short:py-1.5 short:text-[12.5px]">
+        Yeni rekor: {formatScore(last.best)}
+        {last.rank ? ` · #${last.rank}` : ""}
+      </div>
     </div>
   );
 }

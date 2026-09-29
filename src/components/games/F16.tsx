@@ -19,6 +19,7 @@ import Explosion, { type ExplosionHandle } from "./f16/Explosion";
 import { Ribbon } from "./f16/Ribbon";
 import { WINGTIP, zs } from "./f16/jetGeometry";
 import { getGame } from "@/lib/games";
+import { useReportScore } from "@/lib/scores";
 
 const ACCENT = getGame("f16")!.accent;
 const PRESET = "golden" as const;
@@ -917,6 +918,7 @@ export default function F16({ started }: { started: boolean }) {
     g: 1,
     edge: false,
   });
+  useReportScore("f16", hud.score);
   const photoMode = useMemo(() => readPhoto() !== null, []);
   const touch = useIsTouch();
   const reticle = useRef<{ aim: HTMLDivElement | null; nose: HTMLDivElement | null }>({ aim: null, nose: null });

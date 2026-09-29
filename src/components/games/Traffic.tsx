@@ -18,6 +18,7 @@ import { buildCar, type CarType } from "./cars/carGeometry";
 import { beamTexture, TRAFFIC_PAINTS } from "./cars/carMaterials";
 import { CarHorn } from "./cars/horn";
 import { getGame } from "@/lib/games";
+import { useReportScore } from "@/lib/scores";
 
 const ACCENT = getGame("traffic")!.accent;
 const SUB = 1 / 120;
@@ -612,6 +613,7 @@ export default function Traffic({ started }: { started: boolean }) {
     bannerText: "",
     best: 0,
   });
+  useReportScore("traffic", hud.score);
 
   // touch: the how-to line is for the first seconds only; it used to come back
   // whenever the car slowed down (e.g. while holding the horn), which read as a glitch
