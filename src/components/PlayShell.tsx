@@ -104,26 +104,6 @@ export default function PlayShell({ game }: { game: GameInfo }) {
     };
   }, []);
 
-  // Phones: the song follows the game. The start / pause sheet fills the screen
-  // and the (≥ 200 px) player would sit on top of it, so while the sheet is up
-  // the player is put away (paused, hidden); Başlat / Devam et brings it back.
-  useEffect(() => {
-    if (!touch) return;
-    music.hold("sheet", !started);
-    return () => music.hold("sheet", false);
-  }, [touch, started]);
-
-  // the song dock (root layout) moves out of the thumbs' way while touch controls are up
-  const controlsUp = started && touch;
-  useEffect(() => {
-    if (!controlsUp) return;
-    const html = document.documentElement;
-    html.dataset.touchControls = "";
-    return () => {
-      delete html.dataset.touchControls;
-    };
-  }, [controlsUp]);
-
   useEffect(() => {
     const on = () => setFullscreen(!!document.fullscreenElement);
     document.addEventListener("fullscreenchange", on);
@@ -177,11 +157,10 @@ export default function PlayShell({ game }: { game: GameInfo }) {
   const begin = () => {
     // opened by link while signed out: sign in first (then Başlat again)
     if (!user) return showLogin(null);
-    // first, and synchronously: phones only allow sound to start inside the tap
-    // itself (and requesting fullscreen can use the tap up). The song comes along
-    // unless the visitor turned it off ("Şarkıyla oyna" below, remembered).
-    if (touch) music.hold("sheet", false);
-    music.playWithGame();
+    // first, and synchronously: browsers only allow sound to start inside the
+    // click itself. The song comes along unless the visitor turned it off
+    // ("Şarkıyla oyna" below, remembered). Desktop only: no song on touch devices.
+    if (!touch) music.playWithGame();
     setPhase("play");
     if (touch) void enterLandscapeFullscreen();
   };
@@ -296,7 +275,7 @@ export default function PlayShell({ game }: { game: GameInfo }) {
                   <Pill play onClick={begin} small={touch} fx={false}>
                     {phase === "paused" ? "Devam et" : "Başlat"}
                   </Pill>
-                  {hydrated && <SongToggle />}
+                  {hydrated && !touch && <SongToggle />}
                   {phase === "paused" && (
                     <Link href="/games" className="inline-flex min-h-11 items-center text-[15px] font-medium text-ink underline underline-offset-4">
                       Oyunlardan çık

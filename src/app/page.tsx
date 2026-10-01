@@ -330,7 +330,7 @@ function Footer() {
           <a href={MUSIC.youtubeUrl} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-ink">
             YouTube&apos;daki resmi videosu
           </a>{" "}
-          sayfada görünen YouTube oynatıcısıyla çalar; site şarkıyı barındırmaz ya da kopyalamaz. Şarkının tüm hakları sahiplerine
+          bilgisayarda, sayfada görünen YouTube oynatıcısıyla çalar (telefon ve tablette şarkı yok); site şarkıyı barındırmaz ya da kopyalamaz. Şarkının tüm hakları sahiplerine
           aittir. Bu site hayran yapımı, ticari olmayan bir projedir; sanatçı ya da yapımcısıyla bir bağlantısı yoktur.
         </p>
       </div>

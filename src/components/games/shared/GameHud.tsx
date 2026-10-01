@@ -135,7 +135,7 @@ export function HudBanner({
   return (
     <div
       key={keyId}
-      className={cn("hud-avoid-song hud-top pointer-events-none absolute inset-x-0 top-[20%] flex flex-col items-center animate-pop short:top-[24%]", className)}
+      className={cn("hud-avoid-song pointer-events-none absolute inset-x-0 top-[20%] flex flex-col items-center animate-pop short:top-[24%]", className)}
     >
       <span className="bg-red px-3 font-display text-[clamp(1.8rem,5.6vw,4.2rem)] font-black leading-[1.05] tracking-[-0.01em] text-white [font-stretch:70%]">
         {text}
