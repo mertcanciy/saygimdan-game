@@ -21,7 +21,7 @@ import ThrottleLever from "./touch/ThrottleLever";
 
 interface Layout {
   /** left thumb */
-  left: { kind: "stick"; keys: boolean; label?: string; rim?: "axis" | "radius" } | { kind: "wheel" };
+  left: { kind: "stick"; keys: boolean; label?: string; rim?: "axis" | "radius" | "none" } | { kind: "wheel" };
   /** right thumb: a slide-across cluster anchored bottom-right */
   right: { items: PadItem[]; width: string; height: string; right?: string };
   /** F-16: throttle lever on the right edge */

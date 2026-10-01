@@ -33,11 +33,11 @@ src/lib/
   sessionScore.ts         oyundaki bu ziyaretin puanı (HUD skorunun artışları), çıkışta/duraklatmada gönderilir
   api.ts firebaseClient.ts   API çağrıları (Bearer token) · Firebase Auth (ilk kullanımda dinamik yüklenir)
   server/                 db.ts (Redis anahtarları), players.ts (token, oyuncu, şifre + 15 dk'da 10 yanlışta kilit, Firebase token doğrulama: jose + Google JWKS)
-  musicEngine.ts          şarkı çalar (React dışında tekil): mp3 ya da gizli YouTube, useMusicStore
-  music.ts                mp3 yolu / YouTube id
+  musicEngine.ts          şarkı çalar (React dışında tekil): görünür YouTube embed'i, useMusicStore
+  music.ts                YouTube id, şarkı/sanatçı adı
 src/components/
   PlayShell.tsx           oyun kabuğu: Başlat ekranı, geri/tam ekran, dokunmatik/klavye yardım
-  SongDock.tsx            şarkı çaların kumandası (UI); oynatıcıyı önceden hazırlar
+  SongDock.tsx            görünür YouTube oynatıcısının kutusu + aç düğmesi; oynatıcıyı önceden hazırlar
   site/                   site UI (Chrome, plak, kapak görselleri, InstallHint: iPhone'a "Ana ekrana ekle" ipucu,
                           LoginDialog: tek giriş penceresi (layout'ta), Leaderboard: tablolar + önbellek, Account: nav)
   games/
@@ -71,6 +71,7 @@ public/models/ (spiderman.glb) · public/covers/<slug>.jpg (oyun kapakları)
 - F-16 dokunmatikte sol çubukla uçar (`TOUCH_FLY`): yana = yatış açısı, yukarı/aşağı = tırmanış açısı, tutulur; bırakınca düz uçuş. Çubuğun ucu (eksen başına > 0.88, halka kırmızı yanar) sert manevra: yukarı = sürekli çekiş (loop), yana = 84° yatış + çekiş (sert dönüş), aşağı = dik dalış.
 - F-16 masaüstü (fare nişanı, `AIM`): kamera nişana bakar, uçak onu kovalar. Kokpitte de aynısı: göz uçağa sabit ama bakış nişanda, ufuk büyük ölçüde düz (`cockpitRoll` 0.3); kokpiti burna kilitlemek (eski hali) fareyle oynanmaz hale getiriyordu. A/D fareyle dümen: nişanı yatayda kaydırır, uçak kanat yatırmadan döner (~28°/s). Ok tuşları / dokunmatikte kokpit uçakla birlikte döner.
 - Ağ Sallan'da havadayken sol çubuk döndürür, kamera arkadan takip eder (`TOUCH`): serbest uçuşta hız vektörü döner; ağdayken yanal çekiş kuvveti (ip olduğu yerde kalır; ip ucunu kaydırma), çapa arkada kalınca yeni ağ dönüşün iç tarafına (bekleme süreli).
+- Ağ Sallan dokunmatikte çubuk sadece koşturur (tam itiş = W = 10 m/s); depar sadece Koş düğmesi. Çubuğun ucuna "depar" bağlama: telefonda tam sapma ~50 px, neredeyse her itiş depar oluyordu, ağ atılınca da (16 m/s + fırlatma) "uçuyor" hissi veriyordu. Ağdayken çubuğun ileri çekişi klavyedeki W ile aynı (`TOUCH.swingSteer` 7). Ölçüm: masaüstü W+Space ile telefon tam çubuk+Ağ aynı hız/yükseklik eğrisini vermeli.
 - Makas: korna sağ grupta (frenin üstünde), gazla arasına basınca ikisi birden; direksiyon göbeği sadece süs (korna orada olunca direksiyonu çeviren başparmak korna çalamıyordu).
 - Drift dokunmatikte varsayılan **otomatik gaz** (`touchPrefs.ts`, üstteki "Oto gaz" düğmesi, cihazda hatırlanır): sağda el freni + fren. Kapatınca pedallar gelir.
 - Duraklatma (dokunmatik): oynarken aynı URL'ye bir geçmiş kaydı eklenir; iOS kenar kaydırması / Android geri hareketi oyundan çıkarmaz, duraklatma ekranını açar (ikinci geri gerçekten çıkar). Android'de tam ekrandayken ilk Geri tam ekrandan çıkar; oyun sırasında Tam ekran düğmesi dışındaki bir yolla tam ekrandan çıkmak oyunu da duraklatır. Uygulama arka plana gidince de duraklar. Oyunlara dön oku, `saygimdanPause` kaydını `/games` ile değiştirir; sonraki Geri `/play/...` sayfasına gider, aynı URL koruma kaydında kalmaz. `PlayShell.tsx` → `phase`.
@@ -78,8 +79,13 @@ public/models/ (spiderman.glb) · public/covers/<slug>.jpg (oyun kapakları)
 - His testleri (`/tmp/sgmobile/t-feel.mjs` tipi): "girdi geliyor mu" yetmez; parmak X px oynayınca çıktı ne kadar, hızlı savuruşta tam kilide varıyor mu, ilk temas sıfır mı, dönüş hızı °/s kaç, bunları ölç.
 
 ## Şarkı
-- Tarayıcılar sesi sadece dokunuşun içinde başlatır: çalmayı tıklama işleyicisinden **senkron** çağır (`music.play()` / `music.playUnlessPaused()`, ya da `useMusicStore().start`). Araya `await`, efekt ya da `setTimeout` girmesin.
-- Oynatıcı önceden hazırlanır (`music.prepare()`: oyun sayfasında hemen, diğer sayfalarda ilk etkileşimde). Tarayıcı başlatmayı reddederse `blocked` olur; dock "Şarkı için dokun" der ve görünmez YouTube oynatıcısı dock'un çal butonunun üstüne yerleşir (dokunuş doğrudan YouTube'a gider). YouTube API'si veya oynatıcı 12 saniyede hazır olmazsa `error` görünür; dock'taki hata metni yeniden denemeyi anlatır ve sonraki dokunuş yeni bir yükleme başlatır.
+- Şarkı sadece YouTube'daki resmi videodan, **görünür** standart YouTube embed'iyle çalar (DMCA şikayeti sonrası, 2026-09). Site ses dosyası barındırmaz; mp3 desteği kaldırıldı, geri getirme. YouTube API kuralları (Developer Policies III.I): gizli/arka plan oynatıcı yok, sesi videodan ayırma yok, oynatıcının üstüne bir şey koyma yok, YouTube kontrolleri açık (`controls: 0` yok), en az 200×200 px.
+- Kural: oynatıcı ekranda (`open`) değilken şarkı çalmaz. Çalma oynatıcıyı açar, kapatmak durdurur, sekme gizlenince durur, giriş penceresi (oynatıcının üstünü kapatır) açıkken bekler (`music.hold`). Giriş penceresini açan düğmeler şarkıyı başlatmaz.
+- Oynatıcı kutusu `SongDock`'ta, kök layout'ta; iframe onun içinde kurulur (`music.attach`) ve hiç taşınmaz (taşımak yeniden yükler). Kapalıyken DOM'da kalır, görünmez ve duraklatılmış.
+- Tarayıcılar sesi sadece dokunuşun içinde başlatır: çalmayı tıklama işleyicisinden **senkron** çağır (`music.play()` / `music.playUnlessPaused()`, ya da `useMusicStore().start`). Araya `await`, efekt ya da `setTimeout` girmesin. Tarayıcı reddederse `blocked`: kullanıcı görünür oynatıcıdaki ▶'e basar (görünmez oynatıcıyı düğmenin altına koyma hilesi kaldırıldı, kural dışı).
+- Oyunda oynatıcı açıkken HUD'un yerini alır: HUD sadece skoru gösterir (`HudStack`, ilk kutu = skor). Geniş ekran: sağ üst köşe 356×200, skor solunda. Yatay telefon: üstte, sağdaki butonların solunda (sağdan `--song-gap`: 8rem, Ağ Sallan max(8rem, 47vmin), Makas 50vmin — sağ butonlar vmin ile ölçeklenir; 200×200; sol çubuk, sağ grup ve ekran ortası — karakter/uçak/nişangah — ile çakışmaz, ölçüldü). Sağ düğmeleri değiştirirsen bunu yeniden ölç. Dikey telefon: sağ üst, skorun altında. Ortalanmış HUD yazıları (ipuçları, banner, Drift kapı oku, çarpma kartı) `hud-avoid-song` sınıfıyla oynatıcının boş bıraktığı yere kayar (en üsttekiler `hud-top` ile yatay telefonda sol üst düğmelerin altına da iner) (`html[data-song-open]`, globals.css). Yeni ortalanmış HUD öğesi eklersen bu sınıfı ver.
+- Başlat / Devam et şarkıyı aynı dokunuşta açar (`music.playWithGame()`), Başlat'ın yanındaki "Şarkıyla oyna" (`songOn`, cihazda saklanır) açıksa. Oynatıcıyı açmak bunu açar, kapatmak kapatır. Telefonda oyun içinde oynatıcı yalın: başlık yok, kapatma düğmesi solunda, durum yazısı altında. Telefonda şarkı oyunu izler: başlat/duraklat ekranı açıkken oynatıcı kaldırılır (`music.hold("sheet")`, duraklar + gizlenir, yoksa Başlat'ın üstüne biner), Başlat/Devam et aynı dokunuşta geri getirir.
+- Makas'taki araç ekranında video oynatma: yapılmadı. YouTube ≥ 200×200 ister (telefonda ekranın yarısı), perspektifle çarpıtılmış oynatıcı "değiştirilmiş" sayılır ve dış kameralarda görünmez olur (gizli oynatıcı).
 - Web Audio (korna) için `keepAudioContextUnlocked(ctx)`: iOS'ta sonraki dokunuşta context'i açar.
 
 ## Liderlik tablosu

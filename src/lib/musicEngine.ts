@@ -5,28 +5,29 @@
 // media start with sound inside the user's gesture, and anything async in
 // between — a fetch, a script load, a React effect — loses it).
 //
-// Local mp3 (public/audio/saygimdan.mp3) first, a hidden YouTube player as
-// fallback. `prepare()` decides which and builds the player ahead of time
-// (paused), so that by the time someone presses play the actual start is a
-// single synchronous call.
-//
-// Some browsers (strict mobile autoplay rules) still refuse a YouTube start
-// requested from our page. Then the state goes `blocked`, the dock asks for a
-// tap, and the invisible YouTube player is laid exactly over the dock's play
-// button (`setTapTarget`): that tap lands inside YouTube itself, which is
-// always allowed to start.
+// The song is the official YouTube video, played in a standard, VISIBLE
+// YouTube embed (YouTube API Services Developer Policies III.I: no hidden /
+// background player, no separating the audio, nothing laid over the player,
+// ≥ 200×200 px viewport). The site never hosts the audio. Rules this file
+// keeps:
+//   - the player is on screen (`open`) whenever it plays: playback opens it,
+//     closing it pauses (`close()`), and a hidden tab pauses it;
+//   - YouTube's own controls stay on (no `controls: 0`);
+//   - if the browser refuses a scripted start (`blocked`), the visitor starts
+//     it with the play button inside the (visible) player.
+// The dock (components/SongDock.tsx) renders the player's box and hands it
+// over with `attach()`; the iframe is created inside it and never moves.
 
 import { create } from "zustand";
 import { MUSIC } from "./music";
 
-export type MusicMode = "idle" | "loading" | "audio" | "youtube" | "missing" | "error";
+export type MusicMode = "idle" | "loading" | "youtube" | "missing" | "error";
 
 interface YTPlayer {
   playVideo: () => void;
   pauseVideo: () => void;
-  setVolume: (v: number) => void;
   seekTo?: (s: number, allow: boolean) => void;
-  unMute?: () => void;
+  destroy?: () => void;
 }
 
 declare global {
@@ -46,38 +47,67 @@ interface MusicState {
   mode: MusicMode;
   /** the player exists and can start instantly */
   ready: boolean;
-  /** a play request was refused by the browser: the next tap has to start it */
+  /** a play request was refused by the browser: the play button inside the player has to start it */
   blocked: boolean;
-  volume: number;
-  muted: boolean;
-  /** Start the song. Call it straight from a click / tap handler. */
+  /** asked to play, not audible yet (the player is still starting / buffering) */
+  pending: boolean;
+  /** the player is on screen (it only ever plays while this is true) */
+  open: boolean;
+  /** put away for now (sign-in sheet, paused game on a phone): hidden and paused */
+  held: boolean;
+  /**
+   * The visitor's last choice, remembered on the device: the game's Başlat also
+   * starts the song. Opening the player turns it on, closing it turns it off.
+   */
+  songOn: boolean;
+  setSongOn: (on: boolean) => void;
+  /** Open the player and start the song. Call it straight from a click / tap handler. */
   start: () => void;
   /** Play / pause from the dock (a pause here is remembered as the visitor's choice). */
   toggle: () => void;
-  setVolume: (v: number) => void;
-  setMuted: (m: boolean) => void;
-  /** kept for the landing page's record (mirrors `playing`) */
-  setPlaying: (p: boolean) => void;
+  /** Put the player away (pauses the song: it never plays hidden). */
+  close: () => void;
 }
 
 const YT_API = "https://www.youtube.com/iframe_api";
+const SONG_ON_KEY = "saygimdan-song-on";
+
+function readSongOn(): boolean {
+  try {
+    return localStorage.getItem(SONG_ON_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+function writeSongOn(on: boolean) {
+  try {
+    localStorage.setItem(SONG_ON_KEY, on ? "1" : "0");
+  } catch {
+    /* private mode: just this visit */
+  }
+}
 /** a play request that hasn't produced sound after this long counts as blocked */
 const BLOCK_MS = 2500;
-/** YouTube asks for ≥ 200×200; it's invisible and click-through anyway */
-const YT_SIZE = 200;
-const HOST_HIDDEN = `position:fixed;left:0;bottom:0;width:${YT_SIZE}px;height:${YT_SIZE}px;opacity:0;pointer-events:none;z-index:-1;overflow:hidden;`;
 
 class MusicEngine {
-  private audio: HTMLAudioElement | null = null;
   private yt: YTPlayer | null = null;
-  private host: HTMLDivElement | null = null;
+  /** the dock's player box (stays mounted for the whole visit) */
+  private mount: HTMLElement | null = null;
   /** last YouTube player state (3 = buffering: trying, not blocked) */
   private ytState = -1;
   private preparing: Promise<void> | null = null;
+  /** prepare() was asked for before the dock handed over its box */
+  private pendingPrepare = false;
   /** the visitor wants the song on (survives browser-initiated pauses) */
   private want = false;
   /** paused on purpose from the dock: don't auto-resume */
   private userPaused = false;
+  /** why the player is put away for now (the sign-in sheet over it, a paused game on a phone) */
+  private holds = new Set<string>();
+  private get held() {
+    return this.holds.size > 0;
+  }
   private blockTimer: ReturnType<typeof setTimeout> | null = null;
   private bound = false;
 
@@ -89,9 +119,26 @@ class MusicEngine {
     useMusicStore.setState(p);
   }
 
-  /** Pick mp3 or YouTube and build the player (paused). Idempotent. */
+  /** The dock's player box. The iframe is built inside it and never moved (moving reloads it). */
+  attach(el: HTMLElement | null) {
+    this.mount = el;
+    if (el && this.pendingPrepare) {
+      this.pendingPrepare = false;
+      void this.prepare();
+    }
+  }
+
+  /** Build the (paused) player. Idempotent. */
   prepare(): Promise<void> {
     if (typeof window === "undefined") return Promise.resolve();
+    if (!MUSIC.youtubeId) {
+      this.set({ mode: "missing" });
+      return Promise.resolve();
+    }
+    if (!this.mount) {
+      this.pendingPrepare = true;
+      return Promise.resolve();
+    }
     this.bindPageEvents();
     this.preparing ??= this.build().catch((e) => {
       console.warn("music: player failed to load", e);
@@ -103,58 +150,37 @@ class MusicEngine {
 
   private async build() {
     this.set({ mode: "loading" });
-    if (await hasMp3()) {
-      const a = new Audio(MUSIC.mp3);
-      a.loop = true;
-      a.preload = "auto";
-      a.volume = this.effectiveVolume();
-      a.addEventListener("playing", () => this.onPlaying());
-      a.addEventListener("pause", () => {
-        if (this.want && !this.userPaused && document.visibilityState === "visible") this.set({ playing: false, blocked: true });
-        else this.set({ playing: false });
-      });
-      this.audio = a;
-      this.set({ mode: "audio", ready: true });
-      return;
-    }
-    if (!MUSIC.youtubeId) {
-      this.set({ mode: "missing" });
-      return;
-    }
     await loadYouTubeApi();
+    const mount = this.mount;
+    if (!mount) throw new Error("player box went away");
     await new Promise<void>((resolve, reject) => {
-      const host = document.createElement("div");
-      host.setAttribute("aria-hidden", "true");
-      host.style.cssText = HOST_HIDDEN;
+      // the API replaces this element with the iframe
+      mount.replaceChildren();
       const el = document.createElement("div");
-      host.appendChild(el);
-      document.body.appendChild(host);
-      this.host = host;
+      mount.appendChild(el);
       let settled = false;
       const timeout = window.setTimeout(() => {
         if (settled) return;
         settled = true;
-        this.host?.remove();
-        this.host = null;
+        mount.replaceChildren();
         reject(new Error("YouTube player did not become ready"));
       }, 12000);
       let player: YTPlayer;
       try {
         player = new window.YT!.Player(el, {
-          width: String(YT_SIZE),
-          height: String(YT_SIZE),
+          width: "100%",
+          height: "100%",
           videoId: MUSIC.youtubeId,
-          playerVars: { loop: 1, playlist: MUSIC.youtubeId, controls: 0, disablekb: 1, playsinline: 1, fs: 0, rel: 0 },
+          playerVars: { loop: 1, playlist: MUSIC.youtubeId, playsinline: 1, rel: 0 },
           events: {
             onReady: () => {
               if (settled) return;
               settled = true;
               window.clearTimeout(timeout);
               this.yt = player;
-              player.setVolume(Math.round(this.effectiveVolume() * 100));
               this.set({ mode: "youtube", ready: true });
-              // asked to play before the player existed: try now (may be refused on iOS → blocked)
-              if (this.want && !this.userPaused) this.startNow();
+              // asked to play before the player existed: try now (may be refused → blocked)
+              if (this.want && !this.userPaused && !this.held) this.startNow();
               resolve();
             },
             onStateChange: (e: { data: number }) => {
@@ -165,42 +191,56 @@ class MusicEngine {
                 player.seekTo?.(0, true);
                 player.playVideo();
               } else if (e.data === 2) {
-                if (this.want && !this.userPaused && document.visibilityState === "visible") this.set({ playing: false, blocked: true });
-                else this.set({ playing: false });
+                const wasPlaying = this.s.playing;
+                this.set({ playing: false });
+                // our own pauses (dock, hidden tab, sign-in sheet) are already accounted for
+                if (!this.want || this.held || document.visibilityState !== "visible") return;
+                if (wasPlaying) {
+                  // paused from YouTube's own controls: that's the visitor's choice too
+                  this.want = false;
+                  this.userPaused = true;
+                  this.set({ pending: false });
+                } else {
+                  // paused before it ever played: the browser refused the start
+                  this.refused();
+                }
               }
+            },
+            onAutoplayBlocked: () => {
+              if (this.want) this.refused();
             },
           },
         });
       } catch (error) {
         window.clearTimeout(timeout);
-        this.host?.remove();
-        this.host = null;
+        mount.replaceChildren();
         reject(error);
       }
     });
   }
 
-  private effectiveVolume() {
-    return this.s.muted ? 0 : this.s.volume;
-  }
-
   private onPlaying() {
     if (this.blockTimer) clearTimeout(this.blockTimer);
     this.blockTimer = null;
-    // (may have been started by a tap on the YouTube player itself)
+    // (may have been started from the player's own play button)
     this.want = true;
     this.userPaused = false;
-    this.set({ playing: true, blocked: false, started: true });
+    // never audible while hidden: whatever started it, the player is on screen
+    this.set({ playing: true, blocked: false, pending: false, started: true, open: true });
+  }
+
+  /** The browser didn't let us start it: the visitor presses play inside the player. */
+  private refused() {
+    if (this.blockTimer) clearTimeout(this.blockTimer);
+    this.blockTimer = null;
+    this.set({ blocked: true, pending: false, playing: false });
   }
 
   /** The synchronous part of starting playback. */
   private startNow() {
-    if (this.audio) {
-      this.audio.play().catch(() => this.set({ blocked: true, playing: false }));
-    } else if (this.yt) {
-      this.yt.unMute?.();
-      this.yt.playVideo();
-    } else return;
+    if (!this.yt) return;
+    this.set({ open: true, pending: true });
+    this.yt.playVideo();
     this.armBlockTimer(BLOCK_MS);
   }
 
@@ -211,80 +251,80 @@ class MusicEngine {
       if (!this.want || this.s.playing) return;
       // still buffering on a slow connection: that's not a refusal
       if (this.ytState === 3) this.armBlockTimer(1500);
-      else this.set({ blocked: true });
+      else this.refused();
     }, ms);
   }
 
-  /**
-   * While blocked, lay the invisible YouTube player over `r` (the dock's play
-   * button) so the next tap there is a tap inside YouTube. null = hide it.
-   */
-  setTapTarget(r: DOMRect | null) {
-    const h = this.host;
-    if (!h) return;
-    if (!r) {
-      h.style.cssText = HOST_HIDDEN;
-      return;
+  /** Stop the sound without changing what the visitor asked for. */
+  private silence() {
+    if (this.blockTimer) clearTimeout(this.blockTimer);
+    this.blockTimer = null;
+    try {
+      this.yt?.pauseVideo();
+    } catch {
+      /* player not ready yet */
     }
-    const size = Math.max(r.width, r.height);
-    const k = size / YT_SIZE;
-    h.style.cssText =
-      `position:fixed;left:${r.left + r.width / 2 - size / 2}px;top:${r.top + r.height / 2 - size / 2}px;` +
-      `width:${YT_SIZE}px;height:${YT_SIZE}px;transform:scale(${k});transform-origin:0 0;` +
-      `border-radius:50%;overflow:hidden;opacity:0.01;pointer-events:auto;z-index:60;`;
+    this.set({ playing: false, pending: false });
   }
 
   play() {
     this.want = true;
     this.userPaused = false;
-    this.set({ started: true, blocked: false });
-    if (this.s.playing) return;
-    if (this.audio || this.yt) this.startNow();
+    this.rememberSongOn(true);
+    this.set({ started: true, blocked: false, open: true });
+    if (this.s.playing || this.held) return;
+    if (this.yt) this.startNow();
     else void this.prepare();
   }
 
   pause() {
     this.want = false;
     this.userPaused = true;
-    if (this.blockTimer) clearTimeout(this.blockTimer);
-    this.blockTimer = null;
-    this.audio?.pause();
-    this.yt?.pauseVideo();
-    this.set({ playing: false, blocked: false });
+    this.silence();
+    this.set({ blocked: false });
   }
 
-  /** Play unless the visitor paused it on purpose (e.g. the game's start button). */
-  playUnlessPaused() {
-    if (this.userPaused && this.s.started) return;
-    this.play();
+  close() {
+    this.pause();
+    this.rememberSongOn(false);
+    this.set({ open: false });
   }
 
-  applyVolume() {
-    const v = this.effectiveVolume();
-    if (this.audio) this.audio.volume = v;
-    try {
-      this.yt?.setVolume(Math.round(v * 100));
-    } catch {
-      /* player not ready yet */
-    }
+  /** The game's Başlat / Devam et: plays when the visitor wants the song with the game. */
+  playWithGame() {
+    if (this.s.songOn) this.play();
+  }
+
+  rememberSongOn(on: boolean) {
+    if (this.s.songOn === on) return;
+    writeSongOn(on);
+    this.set({ songOn: on });
+  }
+
+  /**
+   * Put the player away for a while without changing what the visitor asked
+   * for: it pauses and hides, and picks up again once every hold is released.
+   * Release from inside a tap handler when the song should resume right away
+   * (phones only start sound inside the tap).
+   */
+  hold(reason: string, on: boolean) {
+    const was = this.held;
+    if (on) this.holds.add(reason);
+    else this.holds.delete(reason);
+    if (this.held === was) return;
+    this.set({ held: this.held });
+    if (this.held) this.silence();
+    else if (this.want && !this.userPaused && this.yt) this.startNow();
   }
 
   private bindPageEvents() {
     if (this.bound) return;
     this.bound = true;
-    // coming back to the tab (phones pause media when locked / switched away)
+    // no playing from a tab nobody is looking at; pick up again on return
     document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible" && this.want && !this.userPaused && !this.s.playing) this.startNow();
+      if (document.visibilityState === "hidden") this.silence();
+      else if (this.want && !this.userPaused && !this.held && !this.s.playing) this.startNow();
     });
-  }
-}
-
-async function hasMp3(): Promise<boolean> {
-  try {
-    const res = await fetch(MUSIC.mp3, { method: "HEAD" });
-    return res.ok && (res.headers.get("content-type") ?? "").startsWith("audio");
-  } catch {
-    return false;
   }
 }
 
@@ -328,23 +368,21 @@ if (process.env.NODE_ENV !== "production" && typeof window !== "undefined") {
 }
 
 /** Global song state + actions (the dock, the landing's record and the game shell use it). */
-export const useMusicStore = create<MusicState>()((set, get) => ({
+export const useMusicStore = create<MusicState>()((_set, get) => ({
   started: false,
   playing: false,
   mode: "idle",
   ready: false,
   blocked: false,
-  volume: 0.8,
-  muted: false,
+  pending: false,
+  open: false,
+  held: false,
+  songOn: typeof window === "undefined" ? true : readSongOn(),
+  setSongOn: (on) => {
+    music.rememberSongOn(on);
+    if (!on) music.close();
+  },
   start: () => music.play(),
   toggle: () => (get().playing ? music.pause() : music.play()),
-  setVolume: (volume) => {
-    set({ volume, muted: false });
-    music.applyVolume();
-  },
-  setMuted: (muted) => {
-    set({ muted });
-    music.applyVolume();
-  },
-  setPlaying: (playing) => set({ playing }),
+  close: () => music.close(),
 }));

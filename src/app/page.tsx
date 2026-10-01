@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { GAMES } from "@/lib/games";
+import { MUSIC } from "@/lib/music";
 import { useHydrated, useLoginDialog, useMusicStore, useUserStore } from "@/lib/store";
 import { Keys, Pill, SiteNav, Wordmark } from "@/components/site/Chrome";
 import GameShot from "@/components/site/GameShot";
@@ -21,10 +22,11 @@ export default function Landing() {
   const loggedIn = hydrated && !!user;
 
   const play = () => {
+    // signed out, the sign-in sheet would cover the player: the song waits for the game
+    if (!loggedIn) return showLogin("/games");
     // synchronously, inside the tap: phones only start sound there
     startMusic();
-    if (loggedIn) router.push("/games");
-    else showLogin("/games");
+    router.push("/games");
   };
 
   return (
@@ -266,13 +268,11 @@ function GamesPinned({ loggedIn }: { loggedIn: boolean }) {
 /** A game link: signed out, it opens the sign-in dialog first (then goes to the game). */
 function useGameLink(loggedIn: boolean) {
   const showLogin = useLoginDialog((s) => s.show);
-  const startMusic = useMusicStore((s) => s.start);
   return (slug: string) => ({
     href: `/play/${slug}`,
     onClick: (e: React.MouseEvent) => {
       if (loggedIn) return;
       e.preventDefault();
-      startMusic();
       showLogin(`/play/${slug}`);
     },
   });
@@ -324,7 +324,15 @@ function Footer() {
           <Link href="/games" className="hover:text-ink">Oyunlar</Link>
           <Link href="/liderlik" className="hover:text-ink">Liderlik tablosu</Link>
         </nav>
-        <p className="w-full">Şarkı: Bengü, Saygımdan. Oyunlar klavye ve fareyle, telefonda dokunmatik tuşlarla oynanır.</p>
+        <p className="w-full">Oyunlar klavye ve fareyle, telefonda dokunmatik tuşlarla oynanır.</p>
+        <p className="w-full max-w-[52rem] text-[13px] leading-[1.55] narrow:text-[12px]">
+          Şarkı: {MUSIC.artist}, {MUSIC.title}. Şarkının{" "}
+          <a href={MUSIC.youtubeUrl} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-ink">
+            YouTube&apos;daki resmi videosu
+          </a>{" "}
+          sayfada görünen YouTube oynatıcısıyla çalar; site şarkıyı barındırmaz ya da kopyalamaz. Şarkının tüm hakları sahiplerine
+          aittir. Bu site hayran yapımı, ticari olmayan bir projedir; sanatçı ya da yapımcısıyla bir bağlantısı yoktur.
+        </p>
       </div>
       <div aria-hidden className="overflow-hidden">
         <div className="select-none whitespace-nowrap text-center text-[20vw] font-extrabold leading-[0.9] tracking-[-0.07em] text-ink translate-y-[12%]">

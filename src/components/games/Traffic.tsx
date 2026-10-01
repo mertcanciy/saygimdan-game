@@ -9,7 +9,7 @@ import { virtualSteer } from "./shared/input";
 import { useIsTouch } from "./shared/useDevice";
 import Particles, { type ParticleHandle } from "./shared/Particles";
 import { WorldAtmosphere, WorldEffects, CANVAS_GL, CANVAS_RESIZE, useCanvasDpr, useSceneFrameloop } from "./shared/World";
-import { HudStat, HudBanner, HudModal, HudBar, HudCenter } from "./shared/GameHud";
+import { HudStack, HudStat, HudBanner, HudModal, HudBar, HudCenter } from "./shared/GameHud";
 import Highway, { LANE_W, LANES, ONCOMING_X, REBASE } from "./cars/Highway";
 import Cockpit from "./cars/Cockpit";
 import Car, { type CarHandle } from "./shared/Car";
@@ -636,12 +636,12 @@ export default function Traffic({ started }: { started: boolean }) {
       <Canvas shadows="percentage" frameloop={frameloop} dpr={dpr} gl={CANVAS_GL} resize={CANVAS_RESIZE} camera={{ fov: 66, near: 0.05, far: 3000 }}>
         {scene}
       </Canvas>
-      <div className="absolute top-4 right-4 flex flex-col gap-2 items-end">
+      <HudStack>
         <HudStat label="Skor" value={`${hud.score}`} accent={ACCENT} sub={hud.combo > 1 ? `×${Math.min(8, hud.combo)} kombo` : undefined} />
         <HudStat label="Hız" value={`${hud.speed} km/h`} accent="#14141f" />
         <HudStat label="Mesafe" value={`${hud.distance.toFixed(1)} km`} accent="#6b6880" />
         <HudBar label="Nitro" value={hud.nitro} accent="#0ea5e9" />
-      </div>
+      </HudStack>
       {hud.bannerId > 0 && <HudBanner keyId={hud.bannerId} text={hud.bannerText} accent={ACCENT} />}
       {hud.crashed && <HudModal title="Çarptın!" accent="#e11d48" lines={["Kombo sıfırlandı, hız düştü"]} tone="danger" />}
       {showHint && (

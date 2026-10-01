@@ -8,7 +8,8 @@ import { GameInfo } from "@/lib/games";
 import { useHydrated, useLoginDialog, useUserStore } from "@/lib/store";
 import { beginSession, flushScore, sessionPoints, setPlaying, subscribeSession } from "@/lib/sessionScore";
 import { BoardList, MyRank, refreshBoards } from "@/components/site/Leaderboard";
-import { music } from "@/lib/musicEngine";
+import { music, useMusicStore } from "@/lib/musicEngine";
+import { MUSIC } from "@/lib/music";
 import { GAME_COMPONENTS } from "@/components/games";
 import TouchControls, { TOUCH_HELP } from "@/components/games/shared/TouchControls";
 import { useIsPortrait, useIsTouch } from "@/components/games/shared/useDevice";
@@ -103,6 +104,15 @@ export default function PlayShell({ game }: { game: GameInfo }) {
     };
   }, []);
 
+  // Phones: the song follows the game. The start / pause sheet fills the screen
+  // and the (≥ 200 px) player would sit on top of it, so while the sheet is up
+  // the player is put away (paused, hidden); Başlat / Devam et brings it back.
+  useEffect(() => {
+    if (!touch) return;
+    music.hold("sheet", !started);
+    return () => music.hold("sheet", false);
+  }, [touch, started]);
+
   // the song dock (root layout) moves out of the thumbs' way while touch controls are up
   const controlsUp = started && touch;
   useEffect(() => {
@@ -165,11 +175,13 @@ export default function PlayShell({ game }: { game: GameInfo }) {
   const GameComponent = GAME_COMPONENTS[game.slug];
 
   const begin = () => {
-    // first, and synchronously: phones only allow sound to start inside the tap
-    // itself (and requesting fullscreen can use the tap up)
-    music.playUnlessPaused();
     // opened by link while signed out: sign in first (then Başlat again)
     if (!user) return showLogin(null);
+    // first, and synchronously: phones only allow sound to start inside the tap
+    // itself (and requesting fullscreen can use the tap up). The song comes along
+    // unless the visitor turned it off ("Şarkıyla oyna" below, remembered).
+    if (touch) music.hold("sheet", false);
+    music.playWithGame();
     setPhase("play");
     if (touch) void enterLandscapeFullscreen();
   };
@@ -284,6 +296,7 @@ export default function PlayShell({ game }: { game: GameInfo }) {
                   <Pill play onClick={begin} small={touch} fx={false}>
                     {phase === "paused" ? "Devam et" : "Başlat"}
                   </Pill>
+                  {hydrated && <SongToggle />}
                   {phase === "paused" && (
                     <Link href="/games" className="inline-flex min-h-11 items-center text-[15px] font-medium text-ink underline underline-offset-4">
                       Oyunlardan çık
@@ -386,5 +399,26 @@ function SessionPoints() {
     <p className="mt-5 text-[15px] font-semibold text-ink short:mt-2 short:text-[13px]">
       Bu turda <span className="text-red tabular-nums">+{points.toLocaleString("tr-TR")}</span> puan, tablona eklendi.
     </p>
+  );
+}
+
+/** "Play with the song" switch next to Başlat (remembered on the device; Başlat starts the song in the same tap). */
+function SongToggle() {
+  const songOn = useMusicStore((s) => s.songOn);
+  const setSongOn = useMusicStore((s) => s.setSongOn);
+  return (
+    <label className="inline-flex min-h-11 cursor-pointer select-none items-center gap-2.5 text-[15px] font-medium text-ink short:text-[13.5px]">
+      <input type="checkbox" checked={songOn} onChange={(e) => setSongOn(e.target.checked)} className="peer sr-only" />
+      <span
+        aria-hidden
+        className="relative h-6 w-10 shrink-0 rounded-full bg-line transition-colors peer-checked:bg-red peer-focus-visible:ring-2 peer-focus-visible:ring-ink after:absolute after:left-0.5 after:top-0.5 after:size-5 after:rounded-full after:bg-paper after:shadow after:transition-transform peer-checked:after:translate-x-4"
+      />
+      <span>
+        Şarkıyla oyna
+        <span className="block text-[12px] font-normal text-muted-ink short:hidden">
+          {MUSIC.artist}, {MUSIC.title} · YouTube
+        </span>
+      </span>
+    </label>
   );
 }
