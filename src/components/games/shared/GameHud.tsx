@@ -3,6 +3,7 @@
 import { Children, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { useMusicStore } from "@/lib/musicEngine";
+import { useSongDockBox } from "@/components/songDockLayout";
 import { useIsTouch } from "./useDevice";
 
 /*
@@ -14,14 +15,17 @@ import { useIsTouch } from "./useDevice";
 /**
  * The top-right stat column. The first tile is the game's score. While the song
  * player is open (SongDock puts it up here, YouTube needs ≥ 200×200 on screen)
- * only the score stays: on wide screens it moves left of the player, on phones
- * it keeps the corner and the player sits beside / below it.
+ * only the score stays, and if the (movable) player or a control sits where it
+ * would be, it moves to a free spot next to the player (SongDock → placeScore).
  */
 export function HudStack({ children }: { children: ReactNode }) {
   const songOpen = useMusicStore((s) => s.open);
+  // the player is movable: SongDock picks a free spot for the score next to it (or null: the corner)
+  const score = useSongDockBox((s) => (s.inGame ? s.score : null));
   const tiles = Children.toArray(children);
+  const style = score ? { right: score.right, top: score.top } : undefined;
   return (
-    <div className={cn("absolute top-4 right-4 flex flex-col gap-2 items-end", songOpen && "wide:right-[calc(1rem+358px+0.5rem)]")}>
+    <div className="absolute top-4 right-4 flex flex-col gap-2 items-end" style={style}>
       {songOpen ? tiles[0] : tiles}
     </div>
   );
@@ -100,7 +104,7 @@ export function HudHint({ text, touchText }: { text: string; touchText?: string 
   return (
     <div
       className={cn(
-        "pointer-events-none absolute inset-x-0 flex justify-center px-4",
+        "hud-avoid-song pointer-events-none absolute inset-x-0 flex justify-center px-4",
         // on touch the bottom corners belong to the thumbs: sit between them, above the song button
         // (portrait: above the thumb controls, left of the song button)
         touch ? "bottom-[calc(max(0.75rem,env(safe-area-inset-bottom))+3.25rem)] narrow:bottom-[calc(max(1.5rem,env(safe-area-inset-bottom))+13.5rem)]" : "bottom-24"

@@ -93,6 +93,7 @@ export default function Stick({
       ref={zone}
       role="application"
       aria-label={label}
+      data-keep-clear
       className={`pointer-events-auto absolute bottom-0 left-0 w-[42%] touch-none select-none ${NO_TAP_HIGHLIGHT}`}
       style={{ top: ZONE_TOP }}
       onPointerDown={(e) => {

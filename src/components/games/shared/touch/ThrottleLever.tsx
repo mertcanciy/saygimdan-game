@@ -56,6 +56,7 @@ export default function ThrottleLever({ initial = 0.65 }: { initial?: number }) 
       aria-valuemax={100}
       aria-valuenow={pct}
       aria-valuetext={shown.ab ? "Afterburner" : `%${pct}`}
+      data-keep-clear
       className={`pointer-events-auto absolute touch-none select-none ${NO_TAP_HIGHLIGHT}`}
       style={{ right: EDGE_RIGHT, bottom: EDGE_BOTTOM, width: "var(--tc-lever-w)", height: "var(--tc-lever-h)" }}
       onPointerDown={(e) => {

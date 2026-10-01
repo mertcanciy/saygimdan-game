@@ -201,7 +201,7 @@ export default function PlayShell({ game }: { game: GameInfo }) {
       {hydrated && hzReady && <GameComponent started={started} />}
 
       {/* top-left: way back + where you are (compact on phones) */}
-      <div className="absolute left-[max(1rem,env(safe-area-inset-left))] top-4 z-30 flex items-center gap-2 short:left-[max(0.75rem,env(safe-area-inset-left))] short:top-[max(0.625rem,env(safe-area-inset-top))] short:gap-1.5 narrow:gap-1.5">
+      <div data-keep-clear className="absolute left-[max(1rem,env(safe-area-inset-left))] top-4 z-30 flex items-center gap-2 short:left-[max(0.75rem,env(safe-area-inset-left))] short:top-[max(0.625rem,env(safe-area-inset-top))] short:gap-1.5 narrow:gap-1.5">
         <Link
           href="/games"
           onClick={(e) => {
@@ -245,7 +245,7 @@ export default function PlayShell({ game }: { game: GameInfo }) {
       {/* touch controls, or the keyboard reference on desktop */}
       {started && touch && <TouchControls slug={game.slug} />}
       {started && !touch && (
-        <div className="absolute bottom-4 left-4 z-20 max-w-[20rem]">
+        <div data-keep-clear className="absolute bottom-4 left-4 z-20 max-w-[20rem]">
           {showControls && <ControlsCard game={game} className="mb-2 animate-fade-up" />}
           <button
             type="button"
@@ -267,7 +267,7 @@ export default function PlayShell({ game }: { game: GameInfo }) {
           }`}
         >
           <div className="mx-auto w-full max-w-[1180px] px-4 pb-24 pt-20 sm:px-10 sm:pb-0 short:px-[max(1rem,env(safe-area-inset-left))] short:py-3 short:pt-14">
-            <div className="max-w-[34rem] rounded-[28px] bg-paper p-7 shadow-[0_30px_80px_-30px_rgba(0,0,0,0.35)] sm:p-10 short:mx-auto short:grid short:max-w-[46rem] short:grid-cols-[1fr_1.05fr] short:gap-x-7 short:rounded-[22px] short:p-5 narrow:p-6 animate-fade-up">
+            <div data-keep-clear className="max-w-[34rem] rounded-[28px] bg-paper p-7 shadow-[0_30px_80px_-30px_rgba(0,0,0,0.35)] sm:p-10 short:mx-auto short:grid short:max-w-[46rem] short:grid-cols-[1fr_1.05fr] short:gap-x-7 short:rounded-[22px] short:p-5 narrow:p-6 animate-fade-up">
               <div>
                 {phase === "paused" ? (
                   <p className="text-[15px] font-semibold text-red short:text-[13px]">Oyun duraklatıldı</p>

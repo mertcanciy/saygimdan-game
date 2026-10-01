@@ -231,6 +231,7 @@ export function Cluster({
 
   return (
     <div
+      data-keep-clear
       className={`pointer-events-auto absolute touch-none select-none ${NO_TAP_HIGHLIGHT} ${className}`}
       style={{ right, bottom: EDGE_BOTTOM, width, height }}
       onPointerDown={(e) => {
@@ -374,6 +375,7 @@ export function Chip({ btn }: { btn: Btn }) {
       type="button"
       aria-label={btn.aria ?? btn.label}
       {...handlers}
+      data-keep-clear
       className={`pointer-events-auto inline-flex h-10 touch-none select-none items-center justify-center gap-1.5 rounded-full px-3.5 text-[13px] font-semibold transition-[transform,background-color] duration-75 short:h-9 short:px-3 short:text-[12.5px] narrow:size-10 narrow:px-0 ${NO_TAP_HIGHLIGHT} ${
         down ? "scale-95 bg-red text-white" : "bg-white/90 text-[#0a0a0a] ring-1 ring-white/70"
       }`}

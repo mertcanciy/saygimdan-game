@@ -275,6 +275,12 @@
     right: max(0.75rem, env(safe-area-inset-right));
   }
 }
+@media (max-height: 520px), (max-width: 480px) {
+  /* just the score (the song player is up): one column, in the corner */
+  .flex-col:has(> [data-hud-tile]:only-child) {
+    grid-template-columns: auto;
+  }
+}
 @media (max-height: 520px) and (min-width: 700px) {
   .flex-col:has(> [data-hud-tile]) {
     grid-template-columns: none;
@@ -306,25 +312,21 @@
   --song-gap: 50vmin;
 }
 @layer utilities {
-  [data-song-open] .hud-avoid-song {
-    padding-right: calc(1rem + 358px + 1rem) !important;
+  /* the player can be anywhere (it's movable): SongDock says which side it's on and how far it reaches */
+  [data-song-side="right"] .hud-avoid-song {
+    padding-right: var(--song-pad) !important;
   }
-  @media (max-height: 520px) {
-    /* the player: 200 px wide, --song-gap left of the right edge */
-    [data-song-open] .hud-avoid-song {
-      padding-right: calc(max(0.75rem, env(safe-area-inset-right)) + var(--song-gap) + 202px + 3.25rem) !important;
-    }
-    /* the ones that sit at the very top also go below the back button / chip rows */
-    [data-song-open] .hud-avoid-song.hud-top {
-      padding-top: 5.25rem !important;
-    }
+  [data-song-side="left"] .hud-avoid-song {
+    padding-left: var(--song-pad) !important;
   }
-  @media (max-width: 480px) {
-    /* portrait: the player covers the top right, so go below it instead */
-    [data-song-open] .hud-avoid-song {
-      padding-right: 1rem !important;
-      padding-top: 17rem !important;
-    }
+  /* portrait, player up top: go below it instead */
+  [data-song-side="top"] .hud-avoid-song {
+    padding-top: var(--song-pad) !important;
+  }
+  /* landscape phones, player on the right: the text slides left, so the ones at the
+     very top also go below the back button / chip rows that own the top-left */
+  [data-song-side="right"][data-song-kind="short"] .hud-avoid-song.hud-top {
+    padding-top: 5.25rem !important;
   }
 }
 

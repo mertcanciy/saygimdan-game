@@ -59,6 +59,7 @@ export default function SteeringWheel() {
     <div
       role="application"
       aria-label="Direksiyon: dokun, sağa sola kaydır"
+      data-keep-clear
       className={`pointer-events-auto absolute bottom-0 left-0 w-[46%] touch-none select-none ${NO_TAP_HIGHLIGHT}`}
       style={{ top: ZONE_TOP }}
       onPointerDown={(e) => {

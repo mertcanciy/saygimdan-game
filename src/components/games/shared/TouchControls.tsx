@@ -246,6 +246,7 @@ export default function TouchControls({ slug }: { slug: GameSlug }) {
               aria-pressed={autoGas}
               aria-label="Otomatik gaz"
               onClick={() => setAutoGas(!autoGas)}
+              data-keep-clear
               className="pointer-events-auto inline-flex h-10 touch-manipulation select-none items-center gap-2 rounded-full bg-white/90 pl-2 pr-3.5 text-[13px] font-semibold text-[#0a0a0a] ring-1 ring-white/70 short:h-9 short:text-[12.5px] narrow:px-2"
             >
               {/* a small switch: the state reads at a glance */}
