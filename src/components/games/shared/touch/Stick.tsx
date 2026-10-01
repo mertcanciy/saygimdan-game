@@ -16,18 +16,19 @@ const KEY_DZ = 0.3;
 const RADIUS = 0.4;
 /**
  * When the rim lights up: "axis" = one axis past 0.88 (F-16: loop / hard turn /
- * steep dive), "radius" = pushed all the way out in any direction (Ağ Sallan: sprint).
+ * steep dive), "radius" = pushed all the way out in any direction, "none" = never
+ * (Ağ Sallan: the rim used to mean sprint, which made every full push a sprint).
  */
 const RIM = { axis: 0.88, radius: 0.97 };
 
 export default function Stick({
   keys = true,
   label = "Hareket: sol başparmağını sürükle",
-  rimMode = "radius",
+  rimMode = "none",
 }: {
   keys?: boolean;
   label?: string;
-  rimMode?: "axis" | "radius";
+  rimMode?: "axis" | "radius" | "none";
 }) {
   const zone = useRef<HTMLDivElement>(null);
   const rest = useRef<HTMLDivElement>(null);
@@ -63,7 +64,7 @@ export default function Stick({
     setKeys(nx, ny);
     const k = knobEl.current;
     if (k) k.style.transform = `translate(-50%, -50%) translate3d(${nx * R}px, ${-ny * R}px, 0)`;
-    const rim = rimMode === "axis" ? Math.max(Math.abs(nx), Math.abs(ny)) > RIM.axis : m >= RIM.radius;
+    const rim = rimMode === "axis" ? Math.max(Math.abs(nx), Math.abs(ny)) > RIM.axis : rimMode === "radius" && m >= RIM.radius;
     if (rim !== atRim.current) {
       atRim.current = rim;
       if (rim) buzz(12);

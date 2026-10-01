@@ -12,7 +12,7 @@ import { isTouchDevice, virtualStick, virtualThrottle } from "./shared/input";
 import { useIsTouch } from "./shared/useDevice";
 import Rings, { type RingData, ringHit } from "./shared/Rings";
 import Particles, { type ParticleHandle } from "./shared/Particles";
-import { HudStat, HudCenter, HudBanner, HudModal, HudBar, HudHint, HudEdge } from "./shared/GameHud";
+import { HudStack, HudStat, HudCenter, HudBanner, HudModal, HudBar, HudHint, HudEdge } from "./shared/GameHud";
 import Jet, { makeJetControls } from "./f16/Jet";
 import Cockpit, { EYE, makeHudData } from "./f16/Cockpit";
 import Explosion, { type ExplosionHandle } from "./f16/Explosion";
@@ -1000,7 +1000,7 @@ export default function F16({ started }: { started: boolean }) {
       <Canvas shadows="percentage" frameloop={frameloop} dpr={dpr} gl={CANVAS_GL} resize={CANVAS_RESIZE} camera={{ fov: 62, near: 0.2, far: 4500 }}>
         {scene}
       </Canvas>
-      <div className="absolute top-4 right-4 flex flex-col gap-2 items-end">
+      <HudStack>
         <HudStat label="Skor" value={`${hud.score}`} accent={ACCENT} sub={hud.combo > 1 ? `×${hud.combo} kombo` : undefined} />
         <HudStat label="Halka" value={`${hud.rings}/${RING_COUNT}`} accent="#0ea5e9" />
         <HudStat
@@ -1012,7 +1012,7 @@ export default function F16({ started }: { started: boolean }) {
         <HudStat label="İrtifa" value={`${hud.alt} m`} accent={hud.lowPass ? "#f97316" : "#6b6880"} sub={hud.lowPass ? "alçak uçuş bonusu" : undefined} />
         {/* touch: the throttle lever shows it */}
         {!touch && <HudBar label="Gaz" value={hud.throttle} accent="#f97316" />}
-      </div>
+      </HudStack>
       {hud.bannerId > 0 && <HudBanner keyId={hud.bannerId} text={hud.bannerText} accent="#0ea5e9" />}
       <HudEdge show={started && !photoMode && !hud.crashed && hud.edge} text="Şehrin dışındasın, uçak geri dönüyor." />
       {hud.crashed && !photoMode && (

@@ -5,7 +5,7 @@ import { SiteNav, Pill } from "@/components/site/Chrome";
 import { NavAccount, NavLeaderboard } from "@/components/site/Account";
 import { LeaderboardPanel } from "@/components/site/Leaderboard";
 import { isGameSlug } from "@/lib/scores";
-import { useHydrated, useLoginDialog, useMusicStore, useUserStore } from "@/lib/store";
+import { useHydrated, useLoginDialog, useUserStore } from "@/lib/store";
 
 const noop = () => () => {};
 /** ?oyun=drift opens that game's tab (links from a game's start screen). */
@@ -19,7 +19,6 @@ export default function LeaderboardPage() {
   const hydrated = useHydrated();
   const user = useUserStore((s) => s.user);
   const showLogin = useLoginDialog((s) => s.show);
-  const startMusic = useMusicStore((s) => s.start);
 
   return (
     <>
@@ -36,10 +35,7 @@ export default function LeaderboardPage() {
           <div className="mt-8">
             <Pill
               play
-              onClick={() => {
-                startMusic();
-                showLogin("/games");
-              }}
+              onClick={() => showLogin("/games")}
             >
               Oyna, tabloya gir
             </Pill>

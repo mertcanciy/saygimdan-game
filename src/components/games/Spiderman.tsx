@@ -22,7 +22,7 @@ import { usePointerLook } from "./shared/usePointerLook";
 import { isTouchDevice, virtualStick } from "./shared/input";
 import Rings, { type RingData } from "./shared/Rings";
 import Particles, { type ParticleHandle } from "./shared/Particles";
-import { HudStat, HudCenter, HudBanner, HudHint, HudEdge } from "./shared/GameHud";
+import { HudStack, HudStat, HudCenter, HudBanner, HudHint, HudEdge } from "./shared/GameHud";
 import { getGame } from "@/lib/games";
 import { loadHero, PELVIS_HEIGHT, type HeroRig } from "./spiderman/heroModel";
 import { HeroAnimator, Mode, type AnimInput } from "./spiderman/heroAnim";
@@ -60,8 +60,8 @@ const TOUCH = {
   /** camera catching up behind the path while the stick turns (keyboard air: 2.2) */
   turnFollow: 4.5,
   deadzone: 0.12,
-  /** forward pull while swinging (keyboard: 7) */
-  swingSteer: 10,
+  /** forward pull while swinging at full stick (same as holding W on a keyboard) */
+  swingSteer: 7,
   /** camera catching up behind a running hero (keyboard: 1.2) */
   groundFollow: 2.4,
   /** cap on the sideways pull while swinging (m/s², ≈ 4 g) */
@@ -72,9 +72,11 @@ const TOUCH = {
   reanchorCooldown: 0.8,
   /** anchor search leans this far towards the stick (rad at full stick) */
   anchorLean: 0.5,
-  /** stick pushed this far (0..1) on the ground = sprint */
-  autoSprint: 0.97,
 };
+// No sprint from the stick: a full push is a run, exactly like W. The stick's
+// full deflection is only ~50 px on a phone, so "pushed to the rim = sprint"
+// turned nearly every push into a sprint, and the web launch from a sprint
+// (16 m/s + the launch kick) felt like being fired off. Sprint is the Koş button.
 
 function touchTurn(x: number) {
   const m = Math.max(0, Math.abs(x) - TOUCH.deadzone) / (1 - TOUCH.deadzone);
@@ -1051,8 +1053,7 @@ function SpidermanScene({ started, onHud }: { started: boolean; onHud: (h: Hud) 
         s.vel.z = -vx * sn + s.vel.z * c;
       }
     }
-    // touch: stick all the way out on the ground = sprint (no second button needed)
-    const sprint = k.has("ShiftLeft") || k.has("ShiftRight") || (touch && s.onGround && virtualStick.active && s.wishMag >= TOUCH.autoSprint);
+    const sprint = k.has("ShiftLeft") || k.has("ShiftRight");
     s.wallCool -= h;
     s.zipCool -= h;
 
@@ -1619,12 +1620,12 @@ export default function Spiderman({ started }: { started: boolean }) {
       <Canvas shadows="percentage" frameloop={frameloop} dpr={dpr} gl={CANVAS_GL} resize={CANVAS_RESIZE} camera={{ fov: 60, near: 0.2, far: 3000 }}>
         {scene}
       </Canvas>
-      <div className="absolute top-4 right-4 flex flex-col gap-2 items-end">
+      <HudStack>
         <HudStat label="Skor" value={`${hud.score}`} accent={ACCENT} sub={hud.combo > 1 ? `×${hud.combo} kombo` : undefined} />
         <HudStat label="Halka" value={`${hud.rings}/${RING_COUNT}`} accent="#0284c7" />
         <HudStat label="Hız" value={`${hud.speed} km/h`} accent="#14141f" />
         <HudStat label="Yükseklik" value={`${hud.height} m`} accent="#6b6880" />
-      </div>
+      </HudStack>
       <HudEdge show={started && hud.edge} />
       {hud.bannerId > 0 && <HudBanner keyId={hud.bannerId} text={hud.bannerText} accent="#0284c7" />}
       {started && !hud.locked && <HudCenter text="Tıkla: fare ile bak · Space / Sol tık basılı: ağ at · Q / Sağ tık: zip" />}

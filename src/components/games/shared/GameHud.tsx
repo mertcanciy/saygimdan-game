@@ -1,6 +1,8 @@
 "use client";
 
+import { Children, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { useMusicStore } from "@/lib/musicEngine";
 import { useIsTouch } from "./useDevice";
 
 /*
@@ -8,6 +10,22 @@ import { useIsTouch } from "./useDevice";
  * the red label for moments worth shouting about.
  * `accent` is the game's colour and is used only as a small marker.
  */
+
+/**
+ * The top-right stat column. The first tile is the game's score. While the song
+ * player is open (SongDock puts it up here, YouTube needs ≥ 200×200 on screen)
+ * only the score stays: on wide screens it moves left of the player, on phones
+ * it keeps the corner and the player sits beside / below it.
+ */
+export function HudStack({ children }: { children: ReactNode }) {
+  const songOpen = useMusicStore((s) => s.open);
+  const tiles = Children.toArray(children);
+  return (
+    <div className={cn("absolute top-4 right-4 flex flex-col gap-2 items-end", songOpen && "wide:right-[calc(1rem+358px+0.5rem)]")}>
+      {songOpen ? tiles[0] : tiles}
+    </div>
+  );
+}
 
 /**
  * Stat tile (top-right). Games stack these in a flex column; on phones
@@ -62,7 +80,7 @@ export function HudCenter({ text, touchText, className }: { text: string; touchT
   return (
     <div
       className={cn(
-        "pointer-events-none absolute inset-x-0 top-5 flex justify-center px-40 short:top-3 narrow:top-16 narrow:px-4",
+        "hud-avoid-song pointer-events-none absolute inset-x-0 top-5 flex justify-center px-40 short:top-3 narrow:top-16 narrow:px-4",
         className,
         // touch landscape: the top band holds the back button, chips and stat grid; sit just below them
         touch && "short:!top-[calc(max(0.625rem,env(safe-area-inset-top))+5.6rem)] short:!px-6 narrow:!top-[9.75rem] narrow:!pl-16"
@@ -117,7 +135,7 @@ export function HudBanner({
   return (
     <div
       key={keyId}
-      className={cn("pointer-events-none absolute inset-x-0 top-[20%] flex flex-col items-center animate-pop short:top-[24%]", className)}
+      className={cn("hud-avoid-song hud-top pointer-events-none absolute inset-x-0 top-[20%] flex flex-col items-center animate-pop short:top-[24%]", className)}
     >
       <span className="bg-red px-3 font-display text-[clamp(1.8rem,5.6vw,4.2rem)] font-black leading-[1.05] tracking-[-0.01em] text-white [font-stretch:70%]">
         {text}
@@ -146,7 +164,7 @@ export function HudModal({
   return (
     <div
       className={cn(
-        "pointer-events-none absolute inset-0 flex items-center justify-center",
+        "hud-avoid-song pointer-events-none absolute inset-0 flex items-center justify-center",
         tone === "danger" ? "bg-[#d92d20]/15" : "bg-white/10"
       )}
     >
@@ -190,7 +208,7 @@ export function HudBar({ label, value, accent }: { label: string; value: number;
 export function HudEdge({ show, text = "Şehrin sınırı. Geri dön." }: { show: boolean; text?: string }) {
   if (!show) return null;
   return (
-    <div className="pointer-events-none absolute inset-x-0 top-[34%] flex justify-center px-4 animate-fade-up">
+    <div className="hud-avoid-song pointer-events-none absolute inset-x-0 top-[34%] flex justify-center px-4 animate-fade-up">
       <span className="flex items-center gap-2.5 rounded-full bg-[#0a0a0a]/90 py-2 pl-2 pr-4 text-[14px] font-semibold text-white phone:gap-2 phone:py-1.5 phone:pl-1.5 phone:pr-3.5 phone:text-[12.5px]">
         <span aria-hidden className="grid size-7 shrink-0 place-items-center rounded-full bg-red text-[15px] font-extrabold text-white phone:size-6 phone:text-[13px]">
           !
