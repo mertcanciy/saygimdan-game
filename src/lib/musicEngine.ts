@@ -20,6 +20,7 @@
 
 import { create } from "zustand";
 import { MUSIC } from "./music";
+import { isTouchDevice } from "@/components/games/shared/input";
 
 export type MusicMode = "idle" | "loading" | "youtube" | "missing" | "error";
 
@@ -130,7 +131,8 @@ class MusicEngine {
 
   /** Build the (paused) player. Idempotent. */
   prepare(): Promise<void> {
-    if (typeof window === "undefined") return Promise.resolve();
+    // desktop only: no song (and no YouTube download) on touch devices
+    if (typeof window === "undefined" || isTouchDevice()) return Promise.resolve();
     if (!MUSIC.youtubeId) {
       this.set({ mode: "missing" });
       return Promise.resolve();
@@ -268,6 +270,7 @@ class MusicEngine {
   }
 
   play() {
+    if (isTouchDevice()) return;
     this.want = true;
     this.userPaused = false;
     this.rememberSongOn(true);

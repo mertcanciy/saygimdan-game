@@ -718,7 +718,7 @@ function DriftScene({ started, onHud }: { started: boolean; onHud: (h: Hud) => v
 
 function NavArrow({ deg, label }: { deg: number; label: string }) {
   return (
-    <div className="hud-avoid-song hud-top pointer-events-none absolute inset-x-0 top-4 flex justify-center short:top-3 narrow:top-[13.5rem]">
+    <div className="hud-avoid-song pointer-events-none absolute inset-x-0 top-4 flex justify-center short:top-3 narrow:top-[13.5rem]">
       <div className="flex items-center gap-2.5 rounded-full bg-[#0a0a0a]/85 py-1.5 pl-1.5 pr-4 text-white">
         <span className="grid size-8 place-items-center rounded-full bg-red text-white">
           <svg
@@ -769,7 +769,7 @@ export default function Drift({ started }: { started: boolean }) {
         <HudStat label="Hız" value={`${hud.speed} km/h`} accent="#14141f" />
       </HudStack>
       {hud.drifting && (
-        <div className="hud-avoid-song hud-top pointer-events-none absolute inset-x-0 top-[4.6rem] flex justify-center short:top-14 narrow:top-28">
+        <div className="hud-avoid-song pointer-events-none absolute inset-x-0 top-[4.6rem] flex justify-center short:top-14 narrow:top-28">
           <span
             className="text-3xl font-black italic tracking-widest animate-pulse short:text-2xl"
             style={{ color: ACCENT, WebkitTextStroke: "1px rgba(255,255,255,0.9)" }}

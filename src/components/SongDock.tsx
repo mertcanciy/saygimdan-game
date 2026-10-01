@@ -17,14 +17,17 @@ import { useIsTouch } from "@/components/games/shared/useDevice";
  * pauses). The player box below stays mounted for the whole visit — the
  * iframe lives in it (lib/musicEngine.ts) and moving it would reload it — so
  * only classes change between the states.
+ *
+ * Desktop only: on touch devices there's no song at all (a ≥ 200×200 YouTube
+ * player, which is the minimum YouTube allows, covers too much of a phone screen
+ * mid-game). The movable, phone-aware version is parked on the
+ * feat/movable-song-player branch.
  */
 export default function SongDock() {
   const { playing, pending, mode, blocked, open, held, start, close } = useMusicStore();
-  // in-game on a phone the corners belong to the thumbs: sit between them
   const pathname = usePathname();
   const touch = useIsTouch();
   const inGame = pathname.startsWith("/play");
-  const compact = touch && inGame;
 
   const box = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -36,6 +39,7 @@ export default function SongDock() {
   // it synchronously. Game pages: right away. Elsewhere: on the first
   // interaction (no YouTube download for visitors who only look).
   useEffect(() => {
+    if (touch) return;
     if (inGame) {
       void music.prepare();
       return;
@@ -44,7 +48,7 @@ export default function SongDock() {
     const evs = ["pointerdown", "keydown", "scroll"] as const;
     evs.forEach((e) => window.addEventListener(e, go, { once: true, passive: true }));
     return () => evs.forEach((e) => window.removeEventListener(e, go));
-  }, [inGame]);
+  }, [inGame, touch]);
 
   // the sign-in sheet covers the player: no playing underneath it
   const loginOpen = useLoginDialog((s) => s.open);
@@ -61,7 +65,7 @@ export default function SongDock() {
     };
   }, [upInGame]);
 
-  if (mode === "missing") return null;
+  if (touch || mode === "missing") return null;
 
   const status =
     mode === "error"
@@ -76,46 +80,12 @@ export default function SongDock() {
               ? "Başlatılıyor…"
               : "Durdu. Oynatıcıdan devam edebilirsin.";
 
-  // In a game the open player takes the stats' place at the top (the HUD shrinks
-  // to the score: GameHud → HudStack), clear of the thumbs:
-  //   wide screens: top-right corner, the score tile moves to its left;
-  //   landscape phones: top, just left of the right-hand buttons (--song-gap per game, globals.css);
-  //   portrait phones: top-right, under the score tile.
-  const placement =
-    inGame && open
-      ? "top-4 right-4 short:top-[max(0.625rem,env(safe-area-inset-top))] short:right-[calc(max(0.75rem,env(safe-area-inset-right))+var(--song-gap))] narrow:top-[calc(max(0.625rem,env(safe-area-inset-top))+3rem)] narrow:right-[max(0.5rem,env(safe-area-inset-right))]"
-      : compact
-        ? // portrait with the thumb controls up (PlayShell sets data-touch-controls): the bottom
-          // edge is all thumbs, so park it on the right above the right-hand controls
-          "bottom-[max(0.75rem,env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 items-center [[data-touch-controls]_&]:narrow:bottom-[calc(max(1.5rem,env(safe-area-inset-bottom))+15.5rem)] [[data-touch-controls]_&]:narrow:left-auto [[data-touch-controls]_&]:narrow:right-[max(1rem,env(safe-area-inset-right))] [[data-touch-controls]_&]:narrow:translate-x-0 [[data-touch-controls]_&]:narrow:items-end"
-        : "bottom-4 right-4 narrow:bottom-3 narrow:right-3";
+  // in a game the open player takes the stats' place in the top-right corner (the
+  // HUD shrinks to the score, which moves to its left: GameHud → HudStack)
+  const placement = inGame && open ? "top-4 right-4" : "bottom-4 right-4";
 
-  // phones in a game: every pixel counts, so just the player (YouTube shows the title
-  // in it); the close button sits beside it and the status hangs below it
-  const bare = compact;
-  const closeBtn = (
-    <button
-      type="button"
-      onClick={close}
-      aria-label="Oynatıcıyı kapat (şarkı durur)"
-      title="Kapat (şarkı durur)"
-      className={
-        bare
-          ? "absolute right-full top-0 mr-2 grid size-9 place-items-center rounded-full border border-line bg-paper/95 text-ink shadow-[0_6px_18px_-10px_rgba(0,0,0,0.4)]"
-          : "grid size-8 shrink-0 place-items-center rounded-full hover:bg-soft phone:size-7"
-      }
-    >
-      <X className="size-4" />
-    </button>
-  );
   const statusLine = status && (
-    <div
-      className={
-        bare
-          ? `absolute right-0 top-full mt-2 w-max max-w-[200px] rounded-xl bg-paper/95 px-2.5 py-1.5 text-[11.5px] leading-snug shadow-[0_6px_18px_-10px_rgba(0,0,0,0.4)] ${blocked || mode === "error" ? "font-semibold text-red" : "text-muted-ink"}`
-          : `max-w-[356px] px-3 py-1.5 text-[11.5px] leading-snug phone:max-w-[200px] ${blocked || mode === "error" ? "font-semibold text-red" : "text-muted-ink"}`
-      }
-    >
+    <div className={`max-w-[356px] px-3 py-1.5 text-[11.5px] leading-snug ${blocked || mode === "error" ? "font-semibold text-red" : "text-muted-ink"}`}>
       {status}
       {mode === "error" && (
         <button type="button" onClick={start} className="ml-1 underline underline-offset-2">
@@ -138,23 +108,27 @@ export default function SongDock() {
           open ? "" : "pointer-events-none invisible absolute bottom-0 right-0"
         }`}
       >
-        {!bare && (
-          <div className="flex items-center gap-2 py-1.5 pl-3 pr-1.5 phone:py-1 phone:pl-2.5 phone:pr-1">
-            <div className="min-w-0 flex-1 leading-tight">
-              <div className="truncate text-[12.5px] font-semibold tracking-[-0.01em]">
-                {MUSIC.artist}, {MUSIC.title}
-              </div>
-              <div className="truncate text-[11px] text-muted-ink phone:hidden">Resmi video, YouTube&apos;dan</div>
+        <div className="flex items-center gap-2 py-1.5 pl-3 pr-1.5">
+          <div className="min-w-0 flex-1 leading-tight">
+            <div className="truncate text-[12.5px] font-semibold tracking-[-0.01em]">
+              {MUSIC.artist}, {MUSIC.title}
             </div>
-            {closeBtn}
+            <div className="truncate text-[11px] text-muted-ink">Resmi video, YouTube&apos;dan</div>
           </div>
-        )}
-        {/* YouTube asks for at least 200×200: 16:9 on wide screens, a square on phones */}
-        <div ref={box} className="h-[200px] w-[356px] bg-ink phone:w-[200px]" />
-        {!bare && statusLine}
+          <button
+            type="button"
+            onClick={close}
+            aria-label="Oynatıcıyı kapat (şarkı durur)"
+            title="Kapat (şarkı durur)"
+            className="grid size-8 shrink-0 place-items-center rounded-full hover:bg-soft"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+        {/* YouTube asks for at least 200×200 */}
+        <div ref={box} className="h-[200px] w-[356px] bg-ink" />
+        {statusLine}
       </div>
-      {bare && open && closeBtn}
-      {bare && open && statusLine}
 
       {!open && (
         <button
@@ -164,16 +138,12 @@ export default function SongDock() {
           className={`flex items-center rounded-full border border-line text-ink ${
             // over a live game canvas a backdrop blur is recomputed every frame: skip it there
             inGame ? "bg-paper/95" : "bg-paper/95 backdrop-blur"
-          } ${
-            compact
-              ? "gap-0 p-1 shadow-[0_6px_18px_-10px_rgba(0,0,0,0.4)]"
-              : "gap-3 py-1.5 pl-1.5 pr-4 shadow-[0_10px_30px_-12px_rgba(0,0,0,0.25)] narrow:gap-2.5 narrow:pr-3.5"
-          }`}
+          } gap-3 py-1.5 pl-1.5 pr-4 shadow-[0_10px_30px_-12px_rgba(0,0,0,0.25)]`}
         >
-          <span className={`grid shrink-0 place-items-center rounded-full bg-red text-paper ${compact ? "size-11" : "size-10"}`}>
+          <span className="grid size-10 shrink-0 place-items-center rounded-full bg-red text-paper">
             <Play className="size-4 translate-x-px fill-current" />
           </span>
-          <span className={`min-w-0 text-left leading-tight ${compact ? "hidden" : ""}`}>
+          <span className="min-w-0 text-left leading-tight">
             <span className="block whitespace-nowrap text-[13px] font-semibold tracking-[-0.01em]">
               {MUSIC.artist}, {MUSIC.title}
             </span>

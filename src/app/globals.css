@@ -284,47 +284,14 @@
 }
 
 /*
- * Song player open in a game (SongDock sets data-song-open on <html>): the
- * centred HUD text (hints, banners, Drift's gate arrow, crash cards) moves into
- * the part of the screen the player leaves free, instead of hiding under it.
- * Same layer as the utilities (their !important paddings would win otherwise).
+ * Song player open in a game (desktop only; SongDock sets data-song-open on
+ * <html>): the centred HUD text (hints, banners, Drift's gate arrow, crash
+ * cards) moves left of the player in the top-right corner instead of hiding
+ * under it. Same layer as the utilities (their !important paddings would win otherwise).
  */
-/*
- * Landscape phones: how far from the right edge the player sits, clear of each
- * game's right-hand buttons (they scale with the short side: vmin; measured at
- * 852×393 and 750×334, Safari with its bars).
- */
-:root {
-  --song-gap: 8rem;
-}
-[data-song-open="spiderman"] {
-  /* Koş starts ~56% down the right side */
-  --song-gap: max(8rem, 47vmin);
-}
-[data-song-open="traffic"] {
-  /* Makas: Selektör / Korna / Nitro reach high up the right side */
-  --song-gap: 50vmin;
-}
 @layer utilities {
   [data-song-open] .hud-avoid-song {
     padding-right: calc(1rem + 358px + 1rem) !important;
-  }
-  @media (max-height: 520px) {
-    /* the player: 200 px wide, --song-gap left of the right edge */
-    [data-song-open] .hud-avoid-song {
-      padding-right: calc(max(0.75rem, env(safe-area-inset-right)) + var(--song-gap) + 202px + 3.25rem) !important;
-    }
-    /* the ones that sit at the very top also go below the back button / chip rows */
-    [data-song-open] .hud-avoid-song.hud-top {
-      padding-top: 5.25rem !important;
-    }
-  }
-  @media (max-width: 480px) {
-    /* portrait: the player covers the top right, so go below it instead */
-    [data-song-open] .hud-avoid-song {
-      padding-right: 1rem !important;
-      padding-top: 17rem !important;
-    }
   }
 }
 
